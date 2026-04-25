@@ -1,0 +1,44 @@
+{
+  "name": "betahi-copilot-bridge",
+  "version": "0.1.0",
+  "description": "Model-layer bridge for routing Codex CLI, Claude Code, and similar clients to GitHub Copilot.",
+  "keywords": [
+    "github-copilot",
+    "proxy",
+    "bridge",
+    "codex",
+    "claude"
+  ],
+  "author": "betaHi",
+  "type": "module",
+  "bin": {
+    "copilot-bridge": "./dist/main.js",
+    "betahi-copilot-bridge": "./dist/main.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsdown",
+    "dev": "bun run --watch ./src/main.ts",
+    "prepack": "bun run build",
+    "start": "NODE_ENV=production bun run ./src/main.ts",
+    "test": "bun test",
+    "typecheck": "tsc"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.14.4",
+    "citty": "^0.1.6",
+    "consola": "^3.4.2",
+    "hono": "^4.9.9",
+    "zod": "^4.1.11"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.2.23",
+    "tsdown": "^0.15.6",
+    "typescript": "^5.9.3"
+  }
+}
