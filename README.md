@@ -1,11 +1,9 @@
 # copilot-bridge
 
-Run GitHub Copilot as a local OpenAI Responses– and Anthropic-compatible
-endpoint, so [Codex CLI](https://github.com/openai/codex) and
-[Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview) can
-talk to Copilot transparently.
+[![npm version](https://img.shields.io/npm/v/betahi-copilot-bridge.svg)](https://www.npmjs.com/package/betahi-copilot-bridge)
+[![license](https://img.shields.io/npm/l/betahi-copilot-bridge.svg)](https://github.com/betahi/copilot-bridge/blob/main/LICENSE)
 
-**Supports:** **Codex CLI** and **Claude Code** out of the box.
+> Use GitHub Copilot as a local OpenAI/Anthropic-compatible API, so [Codex CLI](https://github.com/openai/codex), [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview) and Continue can talk to Copilot with minimal configuration.
 
 > [!WARNING]
 > This is a reverse-engineered bridge for the GitHub Copilot API. It is not
