@@ -95,6 +95,11 @@ model = "gpt-5.3-codex"
 model_reasoning_effort = "high"
 ```
 
+If `model_reasoning_effort` is omitted, the bridge leaves it unset and Codex
+uses that model's default reasoning effort (a startup info log also reminds you).
+
+`model_reasoning_effort` only affects Codex requests; it does not affect Claude.
+
 That's it — `codex exec '...'` will now route through the bridge to Copilot.
 
 Use `--no-codex-setup` to skip the managed-block writer entirely (e.g. if you
@@ -128,15 +133,20 @@ If you prefer to wire it yourself:
     "ANTHROPIC_MODEL": "claude-opus-4.7",
     "ANTHROPIC_DEFAULT_SONNET_MODEL": "claude-sonnet-4.6",
     "ANTHROPIC_SMALL_FAST_MODEL": "claude-haiku-4.5",
-    "COPILOT_REASONING_EFFORT": "medium"
+    "MODEL_REASONING_EFFORT": "medium"
   },
   "model": "claude-opus-4.7"
 }
 ```
 
-`COPILOT_REASONING_EFFORT` is also read from the project-local
-`.claude/settings.json` and `.claude/settings.local.json` and applied to the
-upstream call when the model supports reasoning.
+`MODEL_REASONING_EFFORT` (case-insensitive key lookup) is also read from the
+project-local `.claude/settings.json` and `.claude/settings.local.json` and
+applied to Claude requests only when the model supports reasoning.
+
+For backward compatibility, `COPILOT_REASONING_EFFORT` is accepted as an alias.
+
+If Claude-side reasoning is not configured, Claude requests fall back to
+`medium` (when the target model supports reasoning).
 
 ## Environment overrides
 
@@ -146,7 +156,10 @@ upstream call when the model supports reasoning.
 | `COPILOT_ACCOUNT_TYPE`     | `individual` \| `business` \| `enterprise`.          |
 | `COPILOT_BASE_URL`         | Override the upstream Copilot base URL.              |
 | `COPILOT_VSCODE_VERSION`   | Override the VS Code version sent upstream.          |
-| `COPILOT_REASONING_EFFORT` | Default reasoning effort when the model supports it. |
+| `MODEL_REASONING_EFFORT`   | Claude-side default reasoning effort (preferred key). |
+| `COPILOT_REASONING_EFFORT` | Alias of `MODEL_REASONING_EFFORT` (backward compatible). |
+
+
 
 ## Supported models
 
@@ -195,7 +208,8 @@ accepts upstream.
 If an unsupported value is sent for a reasoning-capable model, the bridge
 falls back to the model's default (`medium` for the GPT-5 / Claude Opus 4.7
 families) instead of forwarding an invalid request upstream. Set the default
-globally via `COPILOT_REASONING_EFFORT` (env, or `env` in
+globally via `MODEL_REASONING_EFFORT` (or `COPILOT_REASONING_EFFORT` alias)
+(env, or `env` in
 `~/.claude/settings.json`); per-request `reasoning_effort` (or Anthropic
 `thinking.budget_tokens`) takes precedence.
 
@@ -217,3 +231,7 @@ bun run ./src/main.ts start --host 127.0.0.1 --port 4141 --no-prompt
 Adding another CLI: drop a new translator under `src/bridges/<client>/`,
 reuse `src/services/copilot/` for upstream calls, register routes in
 `src/server.ts`, and add tests under `tests/`.
+
+## License
+
+MIT — see [LICENSE](./LICENSE).

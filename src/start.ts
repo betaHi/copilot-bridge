@@ -206,6 +206,12 @@ export const start = defineCommand({
     let chosenEffort: string | undefined =
       codexUserConfig.modelReasoningEffort
 
+    if (chosenModel && !chosenEffort) {
+      consola.info(
+        `codex model_reasoning_effort not set; using ${chosenModel}'s default reasoning effort`,
+      )
+    }
+
     if (!args["no-codex-setup"]) {
       try {
         const result = await applyCodexConfig({

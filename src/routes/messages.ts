@@ -48,7 +48,9 @@ messageRoutes.post("/", async (c) => {
   const openAIPayload = translateToOpenAI(anthropicPayload)
 
   try {
-    const response = await createChatCompletions(config, openAIPayload)
+    const response = await createChatCompletions(config, openAIPayload, {
+      client: "claude",
+    })
 
     if (isNonStreamingResponse(response)) {
       return c.json(translateToAnthropic(response))

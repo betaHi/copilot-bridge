@@ -23,7 +23,9 @@ chatCompletionRoutes.post("/", async (c) => {
   try {
     await checkRateLimit()
     const payload = await c.req.json<ChatCompletionsPayload>()
-    const response = await createChatCompletions(c.var.config, payload)
+    const response = await createChatCompletions(c.var.config, payload, {
+      client: "generic",
+    })
 
     if (isNonStreaming(response)) {
       return c.json(response)

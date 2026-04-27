@@ -29,6 +29,8 @@ type ClaudeOpus47Effort = NonNullable<
   NonNullable<ChatCompletionsPayload["output_config"]>["effort"]
 >
 
+type ClientKind = "claude" | "codex" | "generic"
+
 const MAX_USER_LENGTH = 64
 
 const defaultReasoningEffort = (
@@ -126,34 +128,78 @@ const normalizeClaudeOpus47Effort = (
   }
 }
 
+const getEnvValueCaseInsensitive = (
+  env: Record<string, string>,
+  key: string,
+): string | undefined => {
+  const direct = env[key]
+  if (typeof direct === "string") {
+    return direct
+  }
+  const lower = key.toLowerCase()
+  const matched = Object.entries(env).find(([k]) => k.toLowerCase() === lower)
+  return matched?.[1]
+}
+
+const getConfiguredReasoningEffort = (
+  client: ClientKind,
+  claudeSettingsEnv: Record<string, string>,
+): string | undefined => {
+  if (client !== "claude") {
+    return undefined
+  }
+
+  return (
+    // Prefer the normalized key name, keep COPILOT_* as a compatibility alias.
+    process.env.MODEL_REASONING_EFFORT
+    ?? process.env.COPILOT_REASONING_EFFORT
+    ?? getEnvValueCaseInsensitive(claudeSettingsEnv, "MODEL_REASONING_EFFORT")
+    ?? getEnvValueCaseInsensitive(claudeSettingsEnv, "COPILOT_REASONING_EFFORT")
+  )
+}
+
 const getRequestedReasoningEffort = (
   payload: ChatCompletionsPayload,
   claudeSettingsEnv: Record<string, string>,
+  client: ClientKind,
 ): ChatCompletionsPayload["reasoning_effort"] => {
+  const configuredReasoningEffort = getConfiguredReasoningEffort(
+    client,
+    claudeSettingsEnv,
+  )
+
+  const defaultEffort =
+    client === "claude" ? "medium" : defaultReasoningEffort(payload.model)
+
   const requestedReasoningEffort =
     payload.reasoning_effort
-    ?? normalizeReasoningEffort(process.env.COPILOT_REASONING_EFFORT)
-    ?? normalizeReasoningEffort(claudeSettingsEnv.COPILOT_REASONING_EFFORT)
+    ?? normalizeReasoningEffort(configuredReasoningEffort)
 
   return (
     sanitizeReasoningEffortForModel(payload.model, requestedReasoningEffort)
-    ?? defaultReasoningEffort(payload.model)
+    ?? defaultEffort
   )
 }
 
 const getRequestedClaudeOpus47Effort = (
   payload: ChatCompletionsPayload,
   claudeSettingsEnv: Record<string, string>,
+  client: ClientKind,
 ): ClaudeOpus47Effort | undefined => {
   if (!isClaudeOpus47Model(payload.model)) {
     return undefined
   }
 
+  const configuredReasoningEffort = getConfiguredReasoningEffort(
+    client,
+    claudeSettingsEnv,
+  )
+
   return (
     payload.output_config?.effort
     ?? normalizeClaudeOpus47Effort(payload.reasoning_effort)
-    ?? normalizeClaudeOpus47Effort(process.env.COPILOT_REASONING_EFFORT)
-    ?? normalizeClaudeOpus47Effort(claudeSettingsEnv.COPILOT_REASONING_EFFORT)
+    ?? normalizeClaudeOpus47Effort(configuredReasoningEffort)
+    ?? (client === "claude" ? "medium" : undefined)
   )
 }
 
@@ -178,14 +224,17 @@ type ChatCompletionsRequestPayload = Omit<
 const buildRequestPayload = (
   payload: ChatCompletionsPayload,
   claudeSettingsEnv: Record<string, string>,
+  client: ClientKind,
 ): ChatCompletionsRequestPayload => {
   const requestedReasoningEffort = getRequestedReasoningEffort(
     payload,
     claudeSettingsEnv,
+    client,
   )
   const requestedClaudeOpus47Effort = getRequestedClaudeOpus47Effort(
     payload,
     claudeSettingsEnv,
+    client,
   )
 
   const reasoningEffort =
@@ -203,6 +252,8 @@ const buildRequestPayload = (
     || payload.max_tokens === null
     || payload.max_tokens === undefined
   ) {
+    const shouldAttachReasoningEffort = !isClaudeOpus47Model(payload.model)
+
     const sanitizedPayload = {
       ...payload,
       output_config:
@@ -213,13 +264,17 @@ const buildRequestPayload = (
           }
         : payload.output_config,
       reasoning_effort:
-        isClaudeOpus47Model(payload.model) ? undefined : (
+        shouldAttachReasoningEffort ? (
           payload.reasoning_effort
-        ),
+        ) : undefined,
       user: sanitizeUserIdentifier(payload.user),
     }
 
-    return reasoningEffort === null || reasoningEffort === undefined ?
+    return (
+      !shouldAttachReasoningEffort
+      || reasoningEffort === null
+      || reasoningEffort === undefined
+    ) ?
         sanitizedPayload
       : { ...sanitizedPayload, reasoning_effort: reasoningEffort }
   }
@@ -252,15 +307,18 @@ const messagesIncludeImage = (
 export const createChatCompletions = async (
   config: BridgeConfig,
   payload: ChatCompletionsPayload,
+  options?: { client?: ClientKind },
 ) => {
   const provider = getCopilotProviderContext(config)
   const enableVision = messagesIncludeImage(payload.messages)
   const initiator = isAgentInitiator(payload.messages)
-  const claudeSettingsEnv = await getClaudeSettingsEnv()
-  const requestPayload = buildRequestPayload(payload, claudeSettingsEnv)
+  const client = options?.client ?? "generic"
+  const claudeSettingsEnv =
+    client === "claude" ? await getClaudeSettingsEnv() : {}
+  const requestPayload = buildRequestPayload(payload, claudeSettingsEnv, client)
 
   if (shouldUseResponsesApiForModel(payload.model)) {
-    return createResponses(provider, payload, claudeSettingsEnv, {
+    return createResponses(provider, payload, claudeSettingsEnv, client, {
       vision: enableVision,
       initiator,
     })
@@ -282,7 +340,7 @@ export const createChatCompletions = async (
 
   if (!response.ok) {
     if (await shouldRetryWithResponses(response)) {
-      return createResponses(provider, payload, claudeSettingsEnv, {
+      return createResponses(provider, payload, claudeSettingsEnv, client, {
         vision: enableVision,
         initiator,
       })
@@ -303,11 +361,13 @@ async function createResponses(
   provider: ReturnType<typeof getCopilotProviderContext>,
   payload: ChatCompletionsPayload,
   claudeSettingsEnv: Record<string, string>,
+  client: ClientKind,
   options: { vision: boolean; initiator: "agent" | "user" },
 ) {
   const reasoningEffort = getRequestedReasoningEffort(
     payload,
     claudeSettingsEnv,
+    client,
   ) as ResponsesReasoningEffort | undefined
 
   const response = await fetchCopilot(
