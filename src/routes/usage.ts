@@ -6,7 +6,7 @@ import { getCopilotUsage } from "~/providers/github/get-copilot-usage"
 export const usageRoutes = new Hono<BridgeEnv>()
 
 usageRoutes.get("/", async (c) => {
-  // Allow the static usage viewer at https://betahi.github.io/copilot-api
+  // Allow the static usage viewer at https://betahi.github.io/copilot-bridge
   // (and local dev) to call this endpoint cross-origin.
   c.header("access-control-allow-origin", "*")
   c.header("access-control-allow-methods", "GET, OPTIONS")

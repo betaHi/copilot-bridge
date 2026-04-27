@@ -187,7 +187,7 @@ export const start = defineCommand({
       [
         `🌐 Usage viewer`,
         ``,
-        `  https://betahi.github.io/copilot-api?endpoint=${baseUrl}/usage`,
+        `  https://betahi.github.io/copilot-bridge?endpoint=${baseUrl}/usage`,
       ].join("\n"),
     )
 

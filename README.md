@@ -54,7 +54,7 @@ npx betahi-copilot-bridge@latest start
 `--select-model`, `--no-prompt`, `--rate-limit <seconds>`, `--wait`.
 
 After startup the banner prints a **Usage Viewer** link of the form
-`https://betahi.github.io/copilot-api?endpoint=http://127.0.0.1:4142/usage`,
+`https://betahi.github.io/copilot-bridge?endpoint=http://127.0.0.1:4142/usage`,
 which renders the Copilot quota snapshot (chat / completions / premium
 interactions) read from `GET /usage`.
 
