@@ -11,6 +11,7 @@ import { normalizeCodexResponsesRequest } from "~/bridges/codex/responses"
 import type { BridgeEnv } from "~/lib/config"
 import { BridgeNotImplementedError } from "~/lib/error"
 import { getModelCapability } from "~/lib/model-capabilities"
+import { checkRateLimit, RateLimitError } from "~/lib/rate-limit"
 import {
   fetchCopilot,
   getCopilotProviderContext,
@@ -19,6 +20,14 @@ import {
 export const responsesRoutes = new Hono<BridgeEnv>()
 
 responsesRoutes.post("/", async (c) => {
+  try {
+    await checkRateLimit()
+  } catch (error) {
+    if (error instanceof RateLimitError) {
+      return c.json({ error: { message: error.message } }, 429)
+    }
+    throw error
+  }
   const rawPayload = (await c.req.json()) as ResponsesRequestLike
   const payload = normalizeCodexResponsesRequest(
     rawPayload as unknown as Parameters<typeof normalizeCodexResponsesRequest>[0],

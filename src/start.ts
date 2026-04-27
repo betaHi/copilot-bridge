@@ -12,6 +12,7 @@ import {
   MODEL_CAPABILITIES,
 } from "~/lib/model-capabilities"
 import { ensureSettingsFile } from "~/lib/settings"
+import { runtimeState } from "~/lib/state"
 import {
   fetchCopilot,
   getCopilotProviderContext,
@@ -77,6 +78,17 @@ export const start = defineCommand({
       default: false,
       description: "Never prompt; use codex.model from settings.json as-is.",
     },
+    "rate-limit": {
+      type: "string",
+      description:
+        "Minimum seconds between upstream requests (anti-abuse throttle).",
+    },
+    wait: {
+      type: "boolean",
+      default: false,
+      description:
+        "When --rate-limit is set, wait instead of returning HTTP 429.",
+    },
   },
   async run({ args }) {
     const settings = await ensureSettingsFile()
@@ -85,6 +97,20 @@ export const start = defineCommand({
     const port = args.port ? Number(args.port) : settings.port
 
     const config = readBridgeConfig({ host, port })
+
+    const rateLimitRaw = args["rate-limit"]
+    if (rateLimitRaw !== undefined) {
+      const parsed = Number.parseInt(String(rateLimitRaw), 10)
+      if (!Number.isFinite(parsed) || parsed <= 0) {
+        consola.error(`Invalid --rate-limit value: ${rateLimitRaw}`)
+        process.exit(1)
+      }
+      runtimeState.rateLimitSeconds = parsed
+      runtimeState.rateLimitWait = Boolean(args.wait)
+      consola.info(
+        `Rate limit: ${parsed}s between requests (${runtimeState.rateLimitWait ? "wait" : "reject"} on overflow)`,
+      )
+    }
 
     await setupBridgeAuth(config, {
       showToken: args["show-token"],
@@ -95,7 +121,6 @@ export const start = defineCommand({
     consola.success(
       `copilot-bridge listening on http://${config.host}:${config.port}`,
     )
-    consola.info(`bridge mode: ${config.bridgeMode}`)
     consola.info(`copilot base url: ${config.copilotBaseUrl}`)
 
     const models = await fetchAvailableModels(config)
@@ -160,11 +185,9 @@ export const start = defineCommand({
     const baseUrl = `http://${config.host}:${config.port}`
     consola.box(
       [
-        `🌐 copilot-bridge endpoints`,
+        `🌐 Usage viewer`,
         ``,
-        `  Models:    ${baseUrl}/v1/models`,
-        `  Responses: ${baseUrl}/v1/responses`,
-        `  Health:    ${baseUrl}/healthz`,
+        `  https://betahi.github.io/copilot-api?endpoint=${baseUrl}/usage`,
       ].join("\n"),
     )
 

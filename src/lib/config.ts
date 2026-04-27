@@ -1,6 +1,5 @@
 import { z } from "zod"
 
-const bridgeModeSchema = z.enum(["codex", "multi-client"])
 const accountTypeSchema = z.enum(["individual", "business", "enterprise"])
 
 const inputSchema = z.object({
@@ -11,7 +10,6 @@ const inputSchema = z.object({
 export interface BridgeConfig {
   host: string
   port: number
-  bridgeMode: "codex" | "multi-client"
   accountType: "individual" | "business" | "enterprise"
   copilotBaseUrl: string
   copilotToken: string | undefined
@@ -43,9 +41,6 @@ export const readBridgeConfig = (input: {
   return {
     host: parsedInput.host,
     port: parsedInput.port,
-    bridgeMode: bridgeModeSchema.parse(
-      process.env.COPILOT_BRIDGE_MODE ?? "multi-client",
-    ),
     accountType,
     copilotBaseUrl,
     copilotToken: process.env.COPILOT_TOKEN,

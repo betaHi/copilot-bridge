@@ -5,6 +5,8 @@ import consola from "consola"
 import type { BridgeConfig } from "~/lib/config"
 import { HTTPError } from "~/lib/error"
 import { PATHS, ensurePaths } from "~/lib/paths"
+import { runtimeState } from "~/lib/state"
+import { getModels } from "~/providers/copilot/get-models"
 
 const COPILOT_VERSION = "0.26.7"
 const EDITOR_PLUGIN_VERSION = `copilot-chat/${COPILOT_VERSION}`
@@ -187,6 +189,7 @@ export const setupBridgeAuth = async (
     if (options.showToken) {
       consola.info("Using COPILOT_TOKEN from environment")
     }
+    await loadModels(config)
     return
   }
 
@@ -216,6 +219,19 @@ export const setupBridgeAuth = async (
       consola.error("Failed to refresh Copilot token:", error)
     }
   }, refreshInterval)
+
+  await loadModels(config)
+}
+
+const loadModels = async (config: BridgeConfig) => {
+  try {
+    runtimeState.models = await getModels(config)
+    consola.success(
+      `Loaded ${runtimeState.models.data.length} Copilot models`,
+    )
+  } catch (error) {
+    consola.warn("Failed to load Copilot models:", error)
+  }
 }
 
 export const runBridgeAuth = async (

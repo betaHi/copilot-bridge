@@ -15,7 +15,6 @@ const buildApp = (captured: Array<CapturedRequest>, response: Response) => {
   const config: BridgeConfig = {
     host: "127.0.0.1",
     port: 0,
-    bridgeMode: "codex",
     accountType: "individual",
     copilotBaseUrl: "https://upstream.test",
     copilotToken: "test-token",

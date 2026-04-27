@@ -9,6 +9,15 @@
     "codex",
     "claude"
   ],
+  "homepage": "https://github.com/betaHi/copilot-bridge#readme",
+  "bugs": {
+    "url": "https://github.com/betaHi/copilot-bridge/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/betaHi/copilot-bridge.git"
+  },
+  "license": "MIT",
   "author": "betaHi",
   "type": "module",
   "bin": {
@@ -33,6 +42,8 @@
     "@hono/node-server": "^1.14.4",
     "citty": "^0.1.6",
     "consola": "^3.4.2",
+    "fetch-event-stream": "^0.1.6",
+    "gpt-tokenizer": "^3.4.0",
     "hono": "^4.9.9",
     "zod": "^4.1.11"
   },

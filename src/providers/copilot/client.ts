@@ -22,10 +22,16 @@ export const getCopilotProviderContext = (
   vsCodeVersion: config.vsCodeVersion,
 })
 
+export interface FetchCopilotOptions {
+  vision?: boolean
+  initiator?: "agent" | "user"
+}
+
 export const fetchCopilot = async (
   provider: CopilotProviderContext,
   path: string,
   init: RequestInit,
+  options: FetchCopilotOptions = {},
 ) => {
   if (!provider.token) {
     throw new BridgeNotImplementedError(
@@ -44,6 +50,14 @@ export const fetchCopilot = async (
   headers.set("x-github-api-version", API_VERSION)
   headers.set("x-request-id", randomUUID())
   headers.set("x-vscode-user-agent-library-version", "electron-fetch")
+
+  if (options.vision) {
+    headers.set("copilot-vision-request", "true")
+  }
+
+  if (options.initiator) {
+    headers.set("x-initiator", options.initiator)
+  }
 
   if (!headers.has("content-type") && init.body !== undefined) {
     headers.set("content-type", "application/json")

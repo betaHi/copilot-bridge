@@ -1,4 +1,8 @@
-export const claudeBridgeStatus = {
-  implemented: false,
-  route: "/v1/messages",
-} as const
+export {
+  translateToAnthropic,
+  translateToOpenAI,
+} from "~/bridges/claude/non-stream-translation"
+export {
+  translateChunkToAnthropicEvents,
+  translateErrorToAnthropicErrorEvent,
+} from "~/bridges/claude/stream-translation"
