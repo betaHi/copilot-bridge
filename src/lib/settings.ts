@@ -13,10 +13,16 @@ export interface CodexSettings {
   configPath: string
 }
 
+export interface ClaudeSettings {
+  enabled: boolean
+  configPath: string
+}
+
 export interface BridgeSettings {
   host: string
   port: number
   codex: CodexSettings
+  claude: ClaudeSettings
 }
 
 const DEFAULT_SETTINGS: BridgeSettings = {
@@ -28,6 +34,10 @@ const DEFAULT_SETTINGS: BridgeSettings = {
     providerName: "Copilot Bridge",
     setAsDefault: true,
     configPath: path.join(os.homedir(), ".codex", "config.toml"),
+  },
+  claude: {
+    enabled: true,
+    configPath: path.join(os.homedir(), ".claude", "settings.json"),
   },
 }
 
@@ -57,7 +67,11 @@ export async function loadSettings(): Promise<BridgeSettings> {
     const parsed = JSON.parse(raw) as unknown
     return deepMerge(DEFAULT_SETTINGS, parsed)
   } catch {
-    return { ...DEFAULT_SETTINGS, codex: { ...DEFAULT_SETTINGS.codex } }
+    return {
+      ...DEFAULT_SETTINGS,
+      codex: { ...DEFAULT_SETTINGS.codex },
+      claude: { ...DEFAULT_SETTINGS.claude },
+    }
   }
 }
 

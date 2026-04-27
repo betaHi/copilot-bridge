@@ -2,6 +2,7 @@ import { defineCommand } from "citty"
 import consola from "consola"
 
 import { setupBridgeAuth } from "~/lib/auth"
+import { applyClaudeConfig } from "~/lib/claude-settings"
 import {
   applyCodexConfig,
   readCodexUserConfigFromDisk,
@@ -68,6 +69,12 @@ export const start = defineCommand({
       default: false,
       description: "Skip writing the bridge provider into ~/.codex/config.toml.",
     },
+    "no-claude-setup": {
+      type: "boolean",
+      default: false,
+      description:
+        "Skip writing ANTHROPIC_BASE_URL into ~/.claude/settings.json.",
+    },
     "select-model": {
       type: "boolean",
       default: false,
@@ -122,6 +129,43 @@ export const start = defineCommand({
       `copilot-bridge listening on http://${config.host}:${config.port}`,
     )
     consola.info(`copilot base url: ${config.copilotBaseUrl}`)
+
+    const baseUrl = `http://${config.host}:${config.port}`
+
+    // Sync Claude Code's settings.json *first*, before any potentially
+    // blocking interactive prompt. This guarantees `claude` works the moment
+    // the server is listening — even if the user never answers the model
+    // picker below.
+    if (settings.claude.enabled && !args["no-claude-setup"]) {
+      try {
+        const claudeResult = await applyClaudeConfig({
+          baseUrl,
+          configPath: settings.claude.configPath,
+        })
+        if (claudeResult.changed) {
+          consola.success(
+            `claude settings ${claudeResult.created ? "created" : "updated"}: ${claudeResult.configPath}`,
+          )
+          if (
+            claudeResult.previousBaseUrl
+            && claudeResult.previousBaseUrl !== baseUrl
+          ) {
+            consola.info(
+              `ANTHROPIC_BASE_URL: ${claudeResult.previousBaseUrl} → ${baseUrl}`,
+            )
+          }
+        } else {
+          consola.info(
+            `claude settings already up to date: ${claudeResult.configPath}`,
+          )
+        }
+      } catch (error) {
+        consola.warn(
+          `Could not update claude settings (${settings.claude.configPath}):`,
+          error,
+        )
+      }
+    }
 
     const models = await fetchAvailableModels(config)
     const supportedIds = new Set(MODEL_CAPABILITIES.map((m) => m.id))
@@ -182,7 +226,6 @@ export const start = defineCommand({
       }
     }
 
-    const baseUrl = `http://${config.host}:${config.port}`
     consola.box(
       [
         `🌐 Usage viewer`,

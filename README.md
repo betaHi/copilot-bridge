@@ -112,7 +112,13 @@ limit (about 900k succeeds; around 1,000,046 is rejected as too long).
 
 Bridge endpoints: `POST /v1/messages`, `POST /v1/messages/count_tokens`.
 
-Point Claude Code at the bridge through **`~/.claude/settings.json`**:
+`copilot-bridge start` automatically writes `ANTHROPIC_BASE_URL` (and a dummy
+`ANTHROPIC_AUTH_TOKEN` if absent) into **`~/.claude/settings.json`**, so
+`claude` works the moment the bridge is listening — even on a different host
+or port. Pass `--no-claude-setup` to skip this. All other keys in your
+settings file (model overrides, plugins, marketplaces) are preserved.
+
+If you prefer to wire it yourself:
 
 ```json
 {

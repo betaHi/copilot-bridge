@@ -3,196 +3,361 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Copilot API Usage Dashboard</title>
+    <title>Copilot Bridge · Usage</title>
 
     <script src="https://cdn.tailwindcss.com"></script>
 
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
       rel="stylesheet"
     />
 
     <script src="https://unpkg.com/lucide-react@0.378.0/dist/umd/lucide.min.js"></script>
 
     <style>
-      /* Gruvbox-themed color palette */
       :root {
-        /* Main Color Palette */
-        --color-red: #cc241d;
-        --color-green: #98971a;
-        --color-yellow: #d79921;
-        --color-blue: #458588;
-        --color-purple: #b16286;
-        --color-aqua: #689d6a;
-        --color-orange: #d65d0e;
-        --color-gray: #a89984;
+        --bg: #0a0b0d;
+        --bg-grid: #0f1115;
+        --panel: #13161b;
+        --panel-2: #181c23;
+        --panel-hover: #1c2129;
+        --border: #232831;
+        --border-strong: #2e3440;
+        --text: #e6e8eb;
+        --text-muted: #9aa3af;
+        --text-dim: #6b7280;
 
-        /* Accent/Lighter/Darker Shades of Main Colors */
-        --color-red-accent: #fb4934;
-        --color-green-accent: #b8bb26;
-        --color-yellow-accent: #fabd2f;
-        --color-blue-accent: #83a598;
-        --color-purple-accent: #d3869b;
-        --color-aqua-accent: #8ec07c;
-        --color-orange-accent: #fe8019;
-        --color-gray-accent: #928374;
+        --accent: #818cf8;
+        --accent-strong: #6366f1;
+        --accent-glow: rgba(99, 102, 241, 0.18);
 
-        /* Background Colors */
-        --color-bg-darkest: #1d2021; /* bg0_h */
-        --color-bg: #282828; /* bg and bg0 */
-        --color-bg-light-1: #3c3836; /* bg1 */
-        --color-bg-light-2: #504945; /* bg2 */
-        --color-bg-light-3: #665c54; /* bg3 */
-        --color-bg-light-4: #7c6f64; /* bg4 */
-        --color-bg-soft: #32302f; /* bg0_s */
-
-        /* Foreground Colors */
-        --color-fg-darker: #a89984; /* fg4 - duplicate of gray */
-        --color-fg-dark: #bdae93; /* fg3 */
-        --color-fg-medium: #d5c4a1; /* fg2 */
-        --color-fg-light: #ebdbb2; /* fg and fg1 */
-        --color-fg-lightest: #fbf1c7; /* fg0 */
+        --success: #34d399;
+        --success-bg: rgba(52, 211, 153, 0.12);
+        --warning: #fbbf24;
+        --warning-bg: rgba(251, 191, 36, 0.12);
+        --danger: #f87171;
+        --danger-bg: rgba(248, 113, 113, 0.12);
+        --info: #38bdf8;
+        --info-bg: rgba(56, 189, 248, 0.12);
       }
 
-      /* Custom styles using the new palette */
+      * {
+        -webkit-font-smoothing: antialiased;
+      }
+
+      html,
       body {
-        font-family: "Inter", sans-serif;
-        background-color: var(--color-bg-darkest);
-        color: var(--color-fg-light);
+        background: var(--bg);
+        color: var(--text);
+        font-family: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
       }
 
-      /* Custom progress bar styles */
-      .progress-bar-bg {
-        background-color: var(--color-bg-light-1);
-      }
-      .progress-bar-fg {
-        transition: width 0.5s ease-in-out;
-      }
-
-      /* Custom scrollbar for the raw data view */
-      .code-block::-webkit-scrollbar {
-        width: 8px;
-        height: 8px;
-      }
-      .code-block::-webkit-scrollbar-track {
-        background: var(--color-bg);
-      }
-      .code-block::-webkit-scrollbar-thumb {
-        background: var(--color-bg-light-3);
-      }
-      .code-block::-webkit-scrollbar-thumb:hover {
-        background: var(--color-bg-light-4);
+      body {
+        background-image: radial-gradient(
+            ellipse 80% 50% at 50% -10%,
+            var(--accent-glow),
+            transparent 60%
+          ),
+          radial-gradient(
+            circle at 0 0,
+            rgba(99, 102, 241, 0.05),
+            transparent 40%
+          );
+        background-attachment: fixed;
       }
 
-      /* Style for focus rings to use variables */
-      .input-focus:focus {
-        --tw-ring-color: var(--color-blue);
-        border-color: var(--color-blue);
+      .font-mono {
+        font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+        font-variant-numeric: tabular-nums;
       }
 
+      .card {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 0.875rem;
+        transition:
+          background 0.15s ease,
+          border-color 0.15s ease,
+          transform 0.15s ease;
+      }
+      .card:hover {
+        background: var(--panel-hover);
+        border-color: var(--border-strong);
+      }
 
+      .input {
+        background: var(--bg-grid);
+        border: 1px solid var(--border);
+        color: var(--text);
+        border-radius: 0.625rem;
+        transition:
+          border-color 0.15s,
+          box-shadow 0.15s;
+      }
+      .input:focus {
+        outline: none;
+        border-color: var(--accent-strong);
+        box-shadow: 0 0 0 3px var(--accent-glow);
+      }
+      .input::placeholder {
+        color: var(--text-dim);
+      }
+
+      .btn-primary {
+        background: var(--accent-strong);
+        color: white;
+        border-radius: 0.625rem;
+        font-weight: 600;
+        transition:
+          background 0.15s,
+          transform 0.05s;
+        box-shadow: 0 1px 0 rgba(255, 255, 255, 0.08) inset;
+      }
+      .btn-primary:hover {
+        background: var(--accent);
+      }
+      .btn-primary:active {
+        transform: translateY(1px);
+      }
+
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 0.125rem 0.5rem;
+        border-radius: 9999px;
+        font-size: 0.6875rem;
+        font-weight: 600;
+        letter-spacing: 0.01em;
+      }
+
+      /* progress bar */
+      .progress-track {
+        background: var(--bg-grid);
+        border-radius: 9999px;
+        overflow: hidden;
+        height: 6px;
+      }
+      .progress-fill {
+        height: 100%;
+        border-radius: 9999px;
+        transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+        position: relative;
+      }
+      .progress-fill::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(
+          90deg,
+          transparent,
+          rgba(255, 255, 255, 0.18),
+          transparent
+        );
+      }
+
+      /* scrollbar */
+      ::-webkit-scrollbar {
+        width: 10px;
+        height: 10px;
+      }
+      ::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      ::-webkit-scrollbar-thumb {
+        background: var(--border-strong);
+        border-radius: 9999px;
+        border: 2px solid var(--bg);
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background: #3a4150;
+      }
+
+      /* code/detail block */
+      .detail-block {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 0.875rem;
+      }
+
+      .key-pill {
+        color: var(--text-muted);
+        font-weight: 500;
+      }
+
+      .val-string {
+        color: #93c5fd;
+      }
+      .val-number {
+        color: #f9a8d4;
+      }
+      .val-bool-true {
+        color: var(--success);
+      }
+      .val-bool-false {
+        color: var(--danger);
+      }
+      .val-null {
+        color: var(--text-dim);
+        font-style: italic;
+      }
+      .val-array {
+        color: var(--text-dim);
+      }
+
+      .skeleton {
+        background: linear-gradient(
+          90deg,
+          var(--panel) 0%,
+          var(--panel-hover) 50%,
+          var(--panel) 100%
+        );
+        background-size: 200% 100%;
+        animation: shimmer 1.4s infinite;
+        border-radius: 0.625rem;
+      }
+      @keyframes shimmer {
+        0% {
+          background-position: 200% 0;
+        }
+        100% {
+          background-position: -200% 0;
+        }
+      }
+
+      .divider {
+        height: 1px;
+        background: linear-gradient(
+          90deg,
+          transparent,
+          var(--border-strong),
+          transparent
+        );
+      }
+
+      .link {
+        color: var(--text-muted);
+        transition: color 0.15s;
+      }
+      .link:hover {
+        color: var(--accent);
+      }
+
+      /* select-all helper for endpoint */
+      #endpoint-url:focus {
+        background: var(--bg);
+      }
     </style>
   </head>
   <body class="antialiased">
-    <div id="app" class="min-h-screen p-4 sm:p-6">
-      <div class="max-w-7xl mx-auto">
-        <!-- Header Section -->
-        <header class="mb-6">
-          <h1
-            class="text-2xl font-bold flex items-center gap-2"
-            style="color: var(--color-fg-lightest)"
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="24"
-              height="24"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              class="lucide lucide-gauge-circle h-7 w-7"
-              style="color: var(--color-aqua-accent)"
-            >
-              <path d="M15.6 3.3a10 10 0 1 0 5.1 5.1" />
-              <path
-                d="M12 12a1 1 0 0 0-1-1v4a1 1 0 0 0 1 1h4a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1h-3z"
-              />
-              <path d="M12 6.8a10 10 0 0 0 -3.2 7.2" />
-            </svg>
-            <span>Copilot API Usage Dashboard</span>
-          </h1>
-          <p class="mt-1 text-sm" style="color: var(--color-gray)">
-            Should be the same as the one in VSCode
-          </p>
-        </header>
-
-        <!-- Form Section -->
-        <div
-          class="mb-6 p-4 border"
-          style="
-            background-color: var(--color-bg-soft);
-            border-color: var(--color-bg-light-2);
-          "
-        >
-          <form
-            id="endpoint-form"
-            class="flex flex-col sm:flex-row items-center gap-3"
-          >
-            <label
-              for="endpoint-url"
-              class="font-semibold whitespace-nowrap text-sm"
-              style="color: var(--color-fg-lightest)"
-              >API Endpoint URL</label
-            >
-            <input
-              type="text"
-              id="endpoint-url"
-              class="w-full px-3 py-1.5 border focus:ring-1 transition input-focus text-sm"
-              style="
-                background-color: var(--color-bg-darkest);
-                border-color: var(--color-bg-light-3);
-                color: var(--color-fg-medium);
-              "
-              placeholder="http://localhost:4141/usage"
-            />
-            <button
-              id="fetch-button"
-              type="submit"
-              class="w-full sm:w-auto font-bold py-1.5 px-5 transition-colors flex items-center justify-center gap-2 text-sm"
-              style="
-                background-color: var(--color-blue);
-                color: var(--color-bg-darkest);
-              "
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="24"
-                height="24"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                class="lucide lucide-refresh-cw h-4 w-4"
+    <div id="app" class="min-h-screen flex flex-col">
+      <div class="flex-1 px-4 sm:px-6 lg:px-8 py-8">
+        <div class="max-w-6xl mx-auto">
+          <!-- Header -->
+          <header class="mb-8">
+            <div class="flex items-center gap-3">
+              <div
+                class="h-10 w-10 rounded-xl flex items-center justify-center"
+                style="
+                  background: linear-gradient(
+                    135deg,
+                    var(--accent-strong),
+                    #a855f7
+                  );
+                  box-shadow: 0 6px 20px var(--accent-glow);
+                "
               >
-                <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
-                <path d="M21 3v5h-5" />
-                <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" />
-                <path d="M3 21v-5h5" />
-              </svg>
-              <span>Fetch</span>
-            </button>
-          </form>
-        </div>
+                <i data-lucide="activity" class="h-5 w-5 text-white"></i>
+              </div>
+              <div>
+                <h1 class="text-xl font-semibold tracking-tight">
+                  Copilot Bridge
+                  <span style="color: var(--text-muted)">/ Usage</span>
+                </h1>
+                <p class="text-xs mt-0.5" style="color: var(--text-dim)">
+                  Live quota snapshot from your local bridge endpoint
+                </p>
+              </div>
+            </div>
+          </header>
 
-        <!-- Content Area for dynamic data -->
-        <main id="content-area"></main>
+          <!-- Endpoint Form -->
+          <div class="card p-4 mb-8">
+            <form
+              id="endpoint-form"
+              class="flex flex-col sm:flex-row items-stretch sm:items-center gap-3"
+            >
+              <div
+                class="flex items-center gap-2 px-3 text-xs font-medium whitespace-nowrap"
+                style="color: var(--text-muted)"
+              >
+                <i data-lucide="link" class="h-3.5 w-3.5"></i>
+                Endpoint
+              </div>
+              <input
+                type="text"
+                id="endpoint-url"
+                class="input flex-1 px-3.5 py-2 text-sm font-mono"
+                placeholder="http://localhost:4142/usage"
+                spellcheck="false"
+                autocomplete="off"
+              />
+              <button
+                id="fetch-button"
+                type="submit"
+                class="btn-primary px-5 py-2 text-sm flex items-center justify-center gap-2 whitespace-nowrap"
+              >
+                <i data-lucide="refresh-cw" class="h-3.5 w-3.5"></i>
+                <span>Fetch</span>
+              </button>
+            </form>
+          </div>
+
+          <!-- Content -->
+          <main id="content-area"></main>
+        </div>
       </div>
+
+      <!-- Footer -->
+      <footer
+        class="border-t mt-8 py-5 text-center text-xs"
+        style="border-color: var(--border); color: var(--text-dim)"
+      >
+        <div class="max-w-6xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-center gap-2">
+          <span>
+            Vibe coded by
+            <a
+              href="https://claude.ai"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="link underline underline-offset-2"
+              >Claude</a
+            >
+          </span>
+          <span class="hidden sm:inline" style="color: var(--border-strong)">·</span>
+          <a
+            href="https://github.com/betaHi/copilot-bridge"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="link inline-flex items-center gap-1"
+          >
+            <i data-lucide="github" class="h-3 w-3"></i>
+            GitHub
+          </a>
+          <span class="hidden sm:inline" style="color: var(--border-strong)">·</span>
+          <span>
+            based on
+            <a
+              href="https://github.com/uheej0625/copilot-usage-viewer"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="link underline underline-offset-2"
+              >copilot-usage-viewer</a
+            >
+          </span>
+        </div>
+      </footer>
     </div>
 
     <script>
@@ -200,249 +365,272 @@
         const endpointForm = document.getElementById("endpoint-form");
         const endpointUrlInput = document.getElementById("endpoint-url");
         const contentArea = document.getElementById("content-area");
-        const fetchButton = document.getElementById("fetch-button");
 
-        // Apply hover effect for fetch button via JS
-        fetchButton.addEventListener("mouseenter", () => {
-          fetchButton.style.backgroundColor = "var(--color-blue-accent)";
-        });
-        fetchButton.addEventListener("mouseleave", () => {
-          fetchButton.style.backgroundColor = "var(--color-blue)";
-        });
+        const DEFAULT_ENDPOINT = "http://localhost:4142/usage";
 
-        const DEFAULT_ENDPOINT = "http://localhost:4141/usage";
-
-        // --- State Management ---
         const state = {
           isLoading: false,
           error: null,
           data: null,
         };
 
-        // --- Rendering Logic ---
-
-        /**
-         * Safely calls lucide.createIcons() if the library is available.
-         */
         function createIcons() {
-          if (typeof lucide !== "undefined") {
-            lucide.createIcons();
-          }
+          if (typeof lucide !== "undefined") lucide.createIcons();
         }
 
-        /**
-         * Renders the entire UI based on the current state.
-         */
         function render() {
           if (state.isLoading) {
-            contentArea.innerHTML = renderSpinner();
-            return;
-          }
-          if (state.error) {
+            contentArea.innerHTML = renderSkeleton();
+          } else if (state.error) {
             contentArea.innerHTML = renderError(state.error);
           } else if (state.data) {
             contentArea.innerHTML = `
-                        ${renderUsageQuotas(state.data.quota_snapshots)}
-                        ${renderDetailedData(state.data)}
-                    `;
+              ${renderSummary(state.data)}
+              ${renderUsageQuotas(state.data.quota_snapshots)}
+              ${renderDetailedData(state.data)}
+            `;
           } else {
-            contentArea.innerHTML = renderWelcomeMessage();
+            contentArea.innerHTML = renderWelcome();
           }
-          // Replace placeholder icons with actual Lucide icons
           createIcons();
         }
 
-        /**
-         * Renders the "Usage Quotas" section with progress bars.
-         * @param {object} snapshots - The quota_snapshots object from the API response.
-         * @returns {string} HTML string for the usage quotas section.
-         */
-        function renderUsageQuotas(snapshots) {
-          if (!snapshots) return "";
-
-          const quotaCards = Object.entries(snapshots)
-            .map(([key, value]) => {
-              return renderQuotaCard(key, value);
-            })
-            .join("");
-
+        function renderSummary(data) {
+          const items = [];
+          if (data.login)
+            items.push({
+              icon: "user",
+              label: "Account",
+              value: data.login,
+            });
+          if (data.copilot_plan)
+            items.push({
+              icon: "package",
+              label: "Plan",
+              value: String(data.copilot_plan).replace(/_/g, " "),
+            });
+          if (data.assigned_date)
+            items.push({
+              icon: "calendar",
+              label: "Assigned",
+              value: data.assigned_date.split("T")[0],
+            });
+          if (typeof data.chat_enabled === "boolean")
+            items.push({
+              icon: "message-square",
+              label: "Chat",
+              value: data.chat_enabled ? "Enabled" : "Disabled",
+              tone: data.chat_enabled ? "success" : "danger",
+            });
+          if (!items.length) return "";
           return `
-                    <section id="usage-quotas" class="mb-6">
-                        <h2 class="text-xl font-bold mb-3 flex items-center gap-2" style="color: var(--color-fg-lightest);">
-                            <i data-lucide="bar-chart-big"></i> Usage Quotas
-                        </h2>
-                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                            ${quotaCards}
-                        </div>
-                    </section>
-                `;
+            <section class="mb-8">
+              <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                ${items
+                  .map(
+                    (it) => `
+                  <div class="card p-3.5">
+                    <div class="flex items-center gap-2 text-[11px] uppercase tracking-wider" style="color: var(--text-dim);">
+                      <i data-lucide="${it.icon}" class="h-3 w-3"></i>
+                      ${it.label}
+                    </div>
+                    <div class="mt-1.5 text-sm font-medium capitalize ${
+                      it.tone === "success"
+                        ? ""
+                        : it.tone === "danger"
+                          ? ""
+                          : ""
+                    }" style="${
+                      it.tone === "success"
+                        ? "color: var(--success);"
+                        : it.tone === "danger"
+                          ? "color: var(--danger);"
+                          : ""
+                    }">${escapeHtml(String(it.value))}</div>
+                  </div>
+                `,
+                  )
+                  .join("")}
+              </div>
+            </section>
+          `;
         }
 
-        /**
-         * Renders a single quota card.
-         * @param {string} title - The name of the quota (e.g., 'chat').
-         * @param {object} details - The details object for the quota.
-         * @returns {string} HTML string for a single card.
-         */
+        function renderUsageQuotas(snapshots) {
+          if (!snapshots || !Object.keys(snapshots).length) return "";
+          const cards = Object.entries(snapshots)
+            .map(([key, value]) => renderQuotaCard(key, value))
+            .join("");
+          return `
+            <section id="usage-quotas" class="mb-8">
+              <div class="flex items-center justify-between mb-4">
+                <h2 class="text-sm font-semibold flex items-center gap-2 uppercase tracking-wider" style="color: var(--text-muted);">
+                  <i data-lucide="bar-chart-3" class="h-4 w-4"></i>
+                  Usage quotas
+                </h2>
+              </div>
+              <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                ${cards}
+              </div>
+            </section>
+          `;
+        }
+
         function renderQuotaCard(title, details) {
           const { entitlement, remaining, percent_remaining, unlimited } =
             details;
-
           const percentUsed = unlimited ? 0 : 100 - percent_remaining;
           const used = unlimited
-            ? "N/A"
+            ? "—"
             : (entitlement - remaining).toLocaleString();
 
-          let progressBarColor = "var(--color-green)";
-          if (percentUsed > 75) progressBarColor = "var(--color-yellow)";
-          if (percentUsed > 90) progressBarColor = "var(--color-red)";
-          if (unlimited) progressBarColor = "var(--color-blue)";
-
-          return `
-                    <div class="p-4 border" style="background-color: var(--color-bg); border-color: var(--color-bg-light-2);">
-                        <div class="flex justify-between items-center mb-2">
-                            <h3 class="text-md font-semibold capitalize" style="color: var(--color-fg-lightest);">${title.replace(/_/g, " ")}</h3>
-                            ${
-                              unlimited
-                                ? `<span class="px-2 py-0.5 text-xs font-medium" style="color: var(--color-blue-accent); background-color: var(--color-bg-light-1);">Unlimited</span>`
-                                : `<span class="text-sm font-mono" style="color: var(--color-fg-medium);">${percentUsed.toFixed(1)}% Used</span>`
-                            }
-                        </div>
-                        <div class="mb-3">
-                             <div class="w-full progress-bar-bg h-2">
-                                 <div class="progress-bar-fg h-2" style="width: ${unlimited ? 100 : percentUsed}%; background-color: ${progressBarColor};"></div>
-                             </div>
-                        </div>
-                        <div class="flex justify-between text-xs font-mono" style="color: var(--color-fg-dark);">
-                            <span>${used} / ${unlimited ? "∞" : entitlement.toLocaleString()}</span>
-                            <span>${unlimited ? "∞" : remaining.toLocaleString()} remaining</span>
-                        </div>
-                    </div>
-                `;
-        }
-
-        /**
-         * Recursively builds a formatted HTML list from a JSON object.
-         * @param {object} obj - The object to format.
-         * @returns {string} HTML string for the formatted list.
-         */
-        function formatObject(obj) {
-          if (obj === null || typeof obj !== "object") {
-            return `<span style="color: var(--color-green-accent);">${JSON.stringify(obj)}</span>`;
+          let fillColor = "var(--success)";
+          let badgeStyle = "color: var(--success); background: var(--success-bg);";
+          if (percentUsed > 75) {
+            fillColor = "var(--warning)";
+            badgeStyle = "color: var(--warning); background: var(--warning-bg);";
+          }
+          if (percentUsed > 90) {
+            fillColor = "var(--danger)";
+            badgeStyle = "color: var(--danger); background: var(--danger-bg);";
+          }
+          if (unlimited) {
+            fillColor = "var(--info)";
+            badgeStyle = "color: var(--info); background: var(--info-bg);";
           }
 
-          return (
-            '<div class="pl-4">' +
-            Object.entries(obj)
-              .map(([key, value]) => {
-                const formattedKey = key.replace(/_/g, " ");
-                let displayValue;
+          const titleNice = title.replace(/_/g, " ");
 
-                if (Array.isArray(value)) {
-                  displayValue =
-                    value.length > 0
-                      ? `<span style='color: var(--color-gray-accent)'>[...${value.length} items]</span>`
-                      : `<span style='color: var(--color-gray-accent)'>[]</span>`;
-                } else if (typeof value === "object" && value !== null) {
-                  displayValue = formatObject(value);
-                } else if (typeof value === "boolean") {
-                  displayValue = `<span class="font-semibold" style="color: ${value ? "var(--color-green-accent)" : "var(--color-red-accent)"}">${value}</span>`;
-                } else {
-                  displayValue = `<span style="color: var(--color-blue-accent);">${JSON.stringify(value)}</span>`;
+          return `
+            <div class="card p-4">
+              <div class="flex items-center justify-between mb-3">
+                <h3 class="text-sm font-semibold capitalize" style="color: var(--text);">${escapeHtml(titleNice)}</h3>
+                ${
+                  unlimited
+                    ? `<span class="badge" style="${badgeStyle}">Unlimited</span>`
+                    : `<span class="badge font-mono" style="${badgeStyle}">${percentUsed.toFixed(1)}%</span>`
                 }
-
-                return `<div class="mt-1">
-                                <span class="capitalize font-semibold" style="color: var(--color-fg-medium);">${formattedKey}:</span>
-                                ${typeof value === "object" && value !== null && !Array.isArray(value) ? displayValue : ` ${displayValue}`}
-                           </div>`;
-              })
-              .join("") +
-            "</div>"
-          );
-        }
-
-        /**
-         * Renders the section with the full, formatted API response.
-         * @param {object} data - The full API response data.
-         * @returns {string} HTML string for the full data section.
-         */
-        function renderDetailedData(data) {
-          const formattedDetails = formatObject(data);
-          return `
-                    <section id="detailed-data">
-                        <h2 class="text-xl font-bold mb-3 flex items-center gap-2" style="color: var(--color-fg-lightest);">
-                           <i data-lucide="file-text"></i> Detailed Information
-                        </h2>
-                        <div class="border p-4 relative font-mono text-xs" style="background-color: var(--color-bg-darkest); border-color: var(--color-bg-light-2);">
-                            ${formattedDetails}
-                        </div>
-                    </section>
-                `;
-        }
-
-        /**
-         * Renders a loading spinner.
-         * @returns {string} HTML string for the spinner.
-         */
-        function renderSpinner() {
-          return `
-            <div class="flex justify-center items-center py-20">
-                <div class="animate-spin h-12 w-12 rounded-full border-4 border-transparent border-t-4" style="border-top-color: var(--color-blue);"></div>
-            </div>`;
-        }
-
-        /**
-         * Renders an error message box.
-         * @param {string} message - The error message to display.
-         * @returns {string} HTML string for the error message.
-         */
-        function renderError(message) {
-          const container = document.createElement("div");
-          container.className = "p-3 border";
-          container.style.backgroundColor = "rgba(204, 36, 29, 0.2)";
-          container.style.borderColor = "var(--color-red)";
-          container.style.color = "var(--color-red-accent)";
-          container.setAttribute("role", "alert");
-
-          container.innerHTML = `
-                <div class="flex items-center">
-                    <i data-lucide="alert-triangle" class="h-5 w-5 mr-3"></i>
-                    <div>
-                        <p class="font-bold text-sm">An Error Occurred</p>
-                        <p class="text-xs">${message}</p>
-                    </div>
-                </div>
-            `;
-          // Must create icons *after* innerHTML is set
-          setTimeout(
-            () =>
-              lucide.createIcons({
-                nodes: [container.querySelector("[data-lucide]")],
-              }),
-            0
-          );
-          return container.outerHTML;
-        }
-
-        /**
-         * Renders a welcome message when the page first loads.
-         * @returns {string} HTML string for the welcome message.
-         */
-        function renderWelcomeMessage() {
-          return `
-            <div class="text-center py-16 px-4 border" style="background-color: var(--color-bg-soft); border-color: var(--color-bg-light-2);">
-                <i data-lucide="info" class="mx-auto h-10 w-10" style="color: var(--color-gray-accent);"></i>
-                <h3 class="mt-2 text-lg font-semibold" style="color: var(--color-fg-lightest);">Welcome!</h3>
-                <p class="mt-1 text-sm" style="color: var(--color-gray);">Enter an API endpoint URL and click "Fetch" to see usage data.</p>
+              </div>
+              <div class="progress-track mb-3">
+                <div class="progress-fill" style="width: ${unlimited ? 100 : Math.min(100, percentUsed)}%; background: ${fillColor};"></div>
+              </div>
+              <div class="flex justify-between text-xs font-mono" style="color: var(--text-muted);">
+                <span><span style="color: var(--text);">${used}</span> / ${unlimited ? "∞" : entitlement.toLocaleString()}</span>
+                <span>${unlimited ? "∞" : remaining.toLocaleString()} left</span>
+              </div>
             </div>
           `;
         }
 
-        // --- Data Fetching ---
+        function escapeHtml(s) {
+          return String(s)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#39;");
+        }
 
-        /**
-         * Fetches data from the specified API endpoint.
-         */
+        function formatValue(v) {
+          if (v === null) return `<span class="val-null">null</span>`;
+          if (typeof v === "boolean")
+            return `<span class="${v ? "val-bool-true" : "val-bool-false"}">${v}</span>`;
+          if (typeof v === "number")
+            return `<span class="val-number font-mono">${v}</span>`;
+          if (typeof v === "string")
+            return `<span class="val-string">"${escapeHtml(v)}"</span>`;
+          return `<span class="val-string">${escapeHtml(JSON.stringify(v))}</span>`;
+        }
+
+        function formatObject(obj, depth = 0) {
+          if (obj === null || typeof obj !== "object") return formatValue(obj);
+          const entries = Object.entries(obj);
+          return (
+            `<div class="${depth > 0 ? "pl-4 border-l" : ""}" style="${depth > 0 ? "border-color: var(--border);" : ""}">` +
+            entries
+              .map(([key, value]) => {
+                const k = escapeHtml(key.replace(/_/g, " "));
+                let v;
+                if (Array.isArray(value)) {
+                  v =
+                    value.length > 0
+                      ? `<span class="val-array">[ ${value.length} items ]</span>`
+                      : `<span class="val-array">[ ]</span>`;
+                } else if (typeof value === "object" && value !== null) {
+                  v = formatObject(value, depth + 1);
+                } else {
+                  v = formatValue(value);
+                }
+                const isInline = !(typeof value === "object" && value !== null && !Array.isArray(value));
+                return `<div class="py-1 ${depth === 0 ? "" : ""}">
+                          <span class="key-pill capitalize text-xs">${k}</span>${isInline ? `<span class="ml-2">${v}</span>` : v}
+                        </div>`;
+              })
+              .join("") +
+            `</div>`
+          );
+        }
+
+        function renderDetailedData(data) {
+          return `
+            <section id="detailed-data" class="mb-4">
+              <div class="flex items-center justify-between mb-4">
+                <h2 class="text-sm font-semibold flex items-center gap-2 uppercase tracking-wider" style="color: var(--text-muted);">
+                  <i data-lucide="file-text" class="h-4 w-4"></i>
+                  Raw response
+                </h2>
+                <button id="copy-btn" type="button" class="text-xs px-2.5 py-1 rounded-md flex items-center gap-1.5 link" style="border: 1px solid var(--border);">
+                  <i data-lucide="copy" class="h-3 w-3"></i>
+                  Copy JSON
+                </button>
+              </div>
+              <div class="detail-block p-5 text-xs">
+                ${formatObject(data)}
+              </div>
+            </section>
+          `;
+        }
+
+        function renderSkeleton() {
+          return `
+            <div class="space-y-4">
+              <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                ${Array(4).fill('<div class="skeleton h-16"></div>').join("")}
+              </div>
+              <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                ${Array(6).fill('<div class="skeleton h-28"></div>').join("")}
+              </div>
+            </div>
+          `;
+        }
+
+        function renderError(message) {
+          return `
+            <div class="card p-5 flex items-start gap-3" style="border-color: var(--danger); background: var(--danger-bg);">
+              <i data-lucide="alert-triangle" class="h-5 w-5 mt-0.5" style="color: var(--danger);"></i>
+              <div class="flex-1">
+                <p class="font-semibold text-sm" style="color: var(--danger);">Request failed</p>
+                <p class="text-xs mt-1 font-mono break-all" style="color: var(--text-muted);">${escapeHtml(message)}</p>
+                <p class="text-xs mt-2" style="color: var(--text-dim);">Make sure your bridge is running and CORS allows this origin.</p>
+              </div>
+            </div>
+          `;
+        }
+
+        function renderWelcome() {
+          return `
+            <div class="card p-12 text-center">
+              <div class="inline-flex h-12 w-12 items-center justify-center rounded-xl mb-3" style="background: var(--panel-2); border: 1px solid var(--border);">
+                <i data-lucide="sparkles" class="h-5 w-5" style="color: var(--accent);"></i>
+              </div>
+              <h3 class="text-base font-semibold">Connect your bridge</h3>
+              <p class="mt-1 text-sm max-w-md mx-auto" style="color: var(--text-muted);">
+                Enter your local bridge URL above (e.g. <span class="font-mono" style="color: var(--text);">http://localhost:4142/usage</span>) and click Fetch.
+              </p>
+            </div>
+          `;
+        }
+
         async function fetchData() {
           const url = endpointUrlInput.value.trim();
           if (!url) {
@@ -451,20 +639,17 @@
             render();
             return;
           }
-
           state.isLoading = true;
           state.error = null;
           render();
-
           try {
             const response = await fetch(url);
             if (!response.ok) {
               throw new Error(
-                `Request failed with status ${response.status}: ${response.statusText}`
+                `HTTP ${response.status} ${response.statusText}`,
               );
             }
-            const jsonData = await response.json();
-            state.data = jsonData;
+            state.data = await response.json();
           } catch (error) {
             console.error("Fetch error:", error);
             state.data = null;
@@ -475,82 +660,54 @@
           }
         }
 
-        // --- Event Handlers & Initialization ---
-
-        /**
-         * Handles the form submission to trigger a data fetch.
-         * @param {Event} event - The form submission event.
-         */
         function handleFormSubmit(event) {
           event.preventDefault();
           const url = endpointUrlInput.value.trim();
-
-          // Update URL query parameter, catching potential security errors in sandboxed environments
           try {
             const currentUrl = new URL(window.location);
             currentUrl.searchParams.set("endpoint", url);
             window.history.pushState({}, "", currentUrl);
           } catch (e) {
-            console.warn("Could not update URL: ", e.message);
+            console.warn("Could not update URL:", e.message);
           }
-
           fetchData();
         }
 
-        /**
-         * Initializes the application.
-         */
+        // copy-to-clipboard delegation
+        document.addEventListener("click", (e) => {
+          const btn = e.target.closest("#copy-btn");
+          if (!btn || !state.data) return;
+          navigator.clipboard
+            .writeText(JSON.stringify(state.data, null, 2))
+            .then(() => {
+              btn.innerHTML =
+                '<i data-lucide="check" class="h-3 w-3"></i> Copied';
+              createIcons();
+              setTimeout(() => {
+                btn.innerHTML =
+                  '<i data-lucide="copy" class="h-3 w-3"></i> Copy JSON';
+                createIcons();
+              }, 1500);
+            })
+            .catch(() => {});
+        });
+
         function init() {
           endpointForm.addEventListener("submit", handleFormSubmit);
-
-          // Get endpoint from URL param on load
           const urlParams = new URLSearchParams(window.location.search);
           const endpointFromUrl = urlParams.get("endpoint");
-
           if (endpointFromUrl) {
             endpointUrlInput.value = endpointFromUrl;
             fetchData();
           } else {
             endpointUrlInput.value = DEFAULT_ENDPOINT;
-            render(); // Render initial welcome message
+            render();
           }
+          createIcons();
         }
 
-        // Start the app
         init();
       });
     </script>
-
-    <footer
-      class="text-center py-4 text-xs"
-      style="color: var(--color-gray-accent)"
-    >
-      <p>
-        Vibe coded by
-        <a
-          href="https://gemini.google.com"
-          target="_blank"
-          rel="noopener noreferrer"
-          class="underline transition-colors"
-          style="color: var(--color-fg-dark)"
-          onmouseover="this.style.color='var(--color-fg-light)'"
-          onmouseout="this.style.color='var(--color-fg-dark)'"
-        >
-          Gemini
-        </a>
-        - Based on
-        <a
-          href="https://github.com/uheej0625/copilot-usage-viewer"
-          target="_blank"
-          rel="noopener noreferrer"
-          class="underline transition-colors"
-          style="color: var(--color-fg-dark)"
-          onmouseover="this.style.color='var(--color-fg-light)'"
-          onmouseout="this.style.color='var(--color-fg-dark)'"
-        >
-          copilot-usage-viewer</a
-        >
-      </p>
-    </footer>
   </body>
 </html>
