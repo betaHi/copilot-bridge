@@ -5,7 +5,7 @@ endpoint, so [Codex CLI](https://github.com/openai/codex) and
 [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview) can
 talk to Copilot transparently.
 
-**Supports:** Codex CLI and Claude Code out of the box.
+**Supports:** **Codex CLI** and **Claude Code** out of the box.
 
 > [!WARNING]
 > This is a reverse-engineered bridge for the GitHub Copilot API. It is not
