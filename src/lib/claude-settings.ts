@@ -34,6 +34,37 @@ const readClaudeSettingsFile = async (
   }
 }
 
+/**
+ * Read just the `ANTHROPIC_BASE_URL` from a single Claude settings file.
+ * Used at startup so the user can pin the bridge port by editing one place
+ * instead of passing `--port` every time.
+ */
+export const readClaudeBaseUrl = async (
+  configPath: string,
+): Promise<string | undefined> => {
+  const settings = await readClaudeSettingsFile(configPath)
+  const value = settings?.env?.ANTHROPIC_BASE_URL
+  return typeof value === "string" ? value : undefined
+}
+
+/**
+ * Parse the port from an `ANTHROPIC_BASE_URL`-style string. Returns
+ * `undefined` if the URL is malformed or has no explicit port.
+ */
+export const parsePortFromBaseUrl = (
+  baseUrl: string | undefined,
+): number | undefined => {
+  if (!baseUrl) return undefined
+  try {
+    const url = new URL(baseUrl)
+    if (!url.port) return undefined
+    const port = Number.parseInt(url.port, 10)
+    return Number.isFinite(port) && port > 0 ? port : undefined
+  } catch {
+    return undefined
+  }
+}
+
 export const getClaudeSettingsEnv = async (): Promise<
   Record<string, string>
 > => {

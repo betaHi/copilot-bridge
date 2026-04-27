@@ -23,7 +23,7 @@ const usesMaxCompletionTokens = (modelId: string): boolean =>
   modelId.startsWith("gpt-5")
 
 const isClaudeOpus47Model = (modelId: string): boolean =>
-  modelId === "claude-opus-4.7"
+  modelId.startsWith("claude-opus-4.7")
 
 type ClaudeOpus47Effort = NonNullable<
   NonNullable<ChatCompletionsPayload["output_config"]>["effort"]

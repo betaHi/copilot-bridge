@@ -2,17 +2,26 @@ import { defineCommand } from "citty"
 import consola from "consola"
 
 import { setupBridgeAuth } from "~/lib/auth"
-import { applyClaudeConfig } from "~/lib/claude-settings"
+import {
+  applyClaudeConfig,
+  parsePortFromBaseUrl,
+  readClaudeBaseUrl,
+} from "~/lib/claude-settings"
 import {
   applyCodexConfig,
   readCodexUserConfigFromDisk,
 } from "~/lib/codex-config"
 import { readBridgeConfig } from "~/lib/config"
 import {
+  CLAUDE_CONFIG_PATH,
+  CODEX_DEFAULTS,
+  DEFAULT_HOST,
+  DEFAULT_PORT,
+} from "~/lib/defaults"
+import {
   getModelCapability,
   MODEL_CAPABILITIES,
 } from "~/lib/model-capabilities"
-import { ensureSettingsFile } from "~/lib/settings"
 import { runtimeState } from "~/lib/state"
 import {
   fetchCopilot,
@@ -53,11 +62,11 @@ export const start = defineCommand({
   args: {
     host: {
       type: "string",
-      description: "Host to bind (overrides settings.json).",
+      description: `Host to bind (default: ${DEFAULT_HOST}).`,
     },
     port: {
       type: "string",
-      description: "Port to listen on (overrides settings.json).",
+      description: `Port to listen on (default: ${DEFAULT_PORT}).`,
     },
     "show-token": {
       type: "boolean",
@@ -78,12 +87,14 @@ export const start = defineCommand({
     "select-model": {
       type: "boolean",
       default: false,
-      description: "Force the model picker even when codex.model is set.",
+      description:
+        "Force the model picker even when ~/.codex/config.toml already has a model.",
     },
     "no-prompt": {
       type: "boolean",
       default: false,
-      description: "Never prompt; use codex.model from settings.json as-is.",
+      description:
+        "Never prompt; use the existing model from ~/.codex/config.toml as-is.",
     },
     "rate-limit": {
       type: "string",
@@ -98,10 +109,29 @@ export const start = defineCommand({
     },
   },
   async run({ args }) {
-    const settings = await ensureSettingsFile()
+    // Port resolution priority (high → low):
+    //   1. --port CLI flag
+    //   2. $PORT environment variable
+    //   3. ANTHROPIC_BASE_URL port in ~/.claude/settings.json
+    //   4. DEFAULT_PORT
+    // Once resolved, the chosen port is written back to BOTH claude
+    // settings and codex config so the three sources stay in lockstep.
+    const claudeConfigPath = CLAUDE_CONFIG_PATH
+    const claudePort = parsePortFromBaseUrl(
+      await readClaudeBaseUrl(claudeConfigPath),
+    )
+    const envPortRaw = process.env.PORT
+    const envPort =
+      envPortRaw && Number.isFinite(Number(envPortRaw)) ?
+        Number(envPortRaw)
+      : undefined
 
-    const host = args.host ? String(args.host) : settings.host
-    const port = args.port ? Number(args.port) : settings.port
+    const host = args.host ? String(args.host) : DEFAULT_HOST
+    const port =
+      args.port ? Number(args.port)
+      : envPort !== undefined ? envPort
+      : claudePort !== undefined ? claudePort
+      : DEFAULT_PORT
 
     const config = readBridgeConfig({ host, port })
 
@@ -131,16 +161,17 @@ export const start = defineCommand({
     consola.info(`copilot base url: ${config.copilotBaseUrl}`)
 
     const baseUrl = `http://${config.host}:${config.port}`
+    const codexConfigPath = CODEX_DEFAULTS.configPath
 
-    // Sync Claude Code's settings.json *first*, before any potentially
-    // blocking interactive prompt. This guarantees `claude` works the moment
-    // the server is listening — even if the user never answers the model
-    // picker below.
-    if (settings.claude.enabled && !args["no-claude-setup"]) {
+    // Sync Claude Code's settings.json and Codex's config.toml *before* any
+    // potentially blocking interactive prompt. This guarantees `claude` and
+    // `codex` work the moment the server is listening — even if the user
+    // never answers the model picker below.
+    if (!args["no-claude-setup"]) {
       try {
         const claudeResult = await applyClaudeConfig({
           baseUrl,
-          configPath: settings.claude.configPath,
+          configPath: claudeConfigPath,
         })
         if (claudeResult.changed) {
           consola.success(
@@ -161,7 +192,48 @@ export const start = defineCommand({
         }
       } catch (error) {
         consola.warn(
-          `Could not update claude settings (${settings.claude.configPath}):`,
+          `Could not update claude settings (${claudeConfigPath}):`,
+          error,
+        )
+      }
+    }
+
+    // Read the user's current codex model so the picker can default to it,
+    // and so we can stamp the managed block immediately even if the picker
+    // is skipped or interrupted.
+    const codexUserConfig = await readCodexUserConfigFromDisk(codexConfigPath)
+    let chosenModel: string | undefined = codexUserConfig.model
+    let chosenEffort: string | undefined =
+      codexUserConfig.modelReasoningEffort
+
+    if (!args["no-codex-setup"]) {
+      try {
+        const result = await applyCodexConfig({
+          baseUrl: `${baseUrl}/v1`,
+          configPath: codexConfigPath,
+          settings: CODEX_DEFAULTS,
+          model: chosenModel,
+          modelReasoningEffort: chosenEffort,
+        })
+        if (result.changed) {
+          consola.success(
+            `codex config ${result.created ? "created" : "updated"}: ${result.configPath}`,
+          )
+          if (CODEX_DEFAULTS.setAsDefault) {
+            consola.info(
+              `codex now defaults to provider "${CODEX_DEFAULTS.providerId}". Run \`codex exec "..."\` directly.`,
+            )
+          } else {
+            consola.info(
+              `provider "${CODEX_DEFAULTS.providerId}" registered. Use \`codex -c model_provider="${CODEX_DEFAULTS.providerId}" ...\``,
+            )
+          }
+        } else {
+          consola.info(`codex config already up to date: ${result.configPath}`)
+        }
+      } catch (error) {
+        consola.warn(
+          `Could not update codex config (${codexConfigPath}):`,
           error,
         )
       }
@@ -185,12 +257,13 @@ export const start = defineCommand({
       consola.warn("Could not fetch model list from upstream Copilot API")
     }
 
-    const codexUserConfig = await readCodexUserConfigFromDisk(
-      settings.codex.configPath,
+    consola.box(
+      [
+        `🌐 Usage viewer`,
+        ``,
+        `  https://betahi.github.io/copilot-bridge?endpoint=${baseUrl}/usage`,
+      ].join("\n"),
     )
-    let chosenModel: string | undefined = codexUserConfig.model
-    let chosenEffort: string | undefined =
-      codexUserConfig.modelReasoningEffort
 
     const shouldPrompt =
       !args["no-prompt"]
@@ -203,14 +276,14 @@ export const start = defineCommand({
         : finalPickable.includes("gpt-5.3-codex") ? "gpt-5.3-codex"
         : finalPickable[0]
       const selected = (await consola.prompt(
-        `Select a model for codex (writes to ${settings.codex.configPath})`,
+        `Select a model for codex (writes to ${codexConfigPath})`,
         {
           type: "select",
           options: finalPickable,
           initial: defaultId,
         },
       )) as string
-      if (selected) {
+      if (selected && selected !== chosenModel) {
         chosenModel = selected
         // If the previously stored effort is no longer supported by the
         // newly chosen model, drop it so codex falls back to its default.
@@ -223,41 +296,26 @@ export const start = defineCommand({
         ) {
           chosenEffort = undefined
         }
-      }
-    }
-
-    consola.box(
-      [
-        `🌐 Usage viewer`,
-        ``,
-        `  https://betahi.github.io/copilot-bridge?endpoint=${baseUrl}/usage`,
-      ].join("\n"),
-    )
-
-    if (settings.codex.enabled && !args["no-codex-setup"]) {
-      const codexBaseUrl = `${baseUrl}/v1`
-      const result = await applyCodexConfig({
-        baseUrl: codexBaseUrl,
-        configPath: settings.codex.configPath,
-        settings: settings.codex,
-        model: chosenModel,
-        modelReasoningEffort: chosenEffort,
-      })
-      if (result.changed) {
-        consola.success(
-          `codex config ${result.created ? "created" : "updated"}: ${result.configPath}`,
-        )
-        if (settings.codex.setAsDefault) {
-          consola.info(
-            `codex now defaults to provider "${settings.codex.providerId}". Run \`codex exec "..."\` directly.`,
-          )
-        } else {
-          consola.info(
-            `provider "${settings.codex.providerId}" registered. Use \`codex -c model_provider="${settings.codex.providerId}" ...\``,
-          )
+        // Re-stamp codex config with the user's freshly picked model.
+        if (!args["no-codex-setup"]) {
+          try {
+            const result = await applyCodexConfig({
+              baseUrl: `${baseUrl}/v1`,
+              configPath: codexConfigPath,
+              settings: CODEX_DEFAULTS,
+              model: chosenModel,
+              modelReasoningEffort: chosenEffort,
+            })
+            if (result.changed) {
+              consola.success(`codex config updated: ${result.configPath}`)
+            }
+          } catch (error) {
+            consola.warn(
+              `Could not update codex config (${codexConfigPath}):`,
+              error,
+            )
+          }
         }
-      } else {
-        consola.info(`codex config already up to date: ${result.configPath}`)
       }
     }
 

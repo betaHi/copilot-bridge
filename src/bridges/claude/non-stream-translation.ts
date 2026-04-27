@@ -52,7 +52,7 @@ function isClaudeModel(modelId: string): boolean {
 }
 
 function isClaudeOpus47Model(modelId: string): boolean {
-  return modelId === "claude-opus-4.7"
+  return modelId.startsWith("claude-opus-4.7")
 }
 
 type ClaudeOpus47Effort = NonNullable<

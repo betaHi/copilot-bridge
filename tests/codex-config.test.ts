@@ -9,10 +9,9 @@ import {
   readCodexUserConfig,
   readCodexUserConfigFromDisk,
 } from "~/lib/codex-config"
-import type { CodexSettings } from "~/lib/settings"
+import type { CodexDefaults } from "~/lib/defaults"
 
-const baseSettings: CodexSettings = {
-  enabled: true,
+const baseSettings: CodexDefaults = {
   providerId: "bridge",
   providerName: "Copilot Bridge",
   setAsDefault: true,

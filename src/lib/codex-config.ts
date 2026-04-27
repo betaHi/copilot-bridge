@@ -1,7 +1,7 @@
 import fs from "node:fs/promises"
 import path from "node:path"
 
-import type { CodexSettings } from "./settings"
+import type { CodexDefaults } from "./defaults"
 
 const BEGIN_MARK =
   "# >>> copilot-bridge managed block — auto-generated, do not edit between markers >>>"
@@ -20,7 +20,7 @@ type UserScalar = (typeof USER_OWNED_SCALARS)[number]
 
 interface ApplyCodexConfigInput {
   baseUrl: string
-  settings: CodexSettings
+  settings: CodexDefaults
   /** Optional model to write into the user-owned area of the file. */
   model?: string
   /** Optional reasoning effort to write into the user-owned area. */
