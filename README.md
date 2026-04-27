@@ -1,7 +1,9 @@
-# copilot-bridge
+<h1 align="center">copilot-bridge</h1>
 
-[![npm version](https://img.shields.io/npm/v/betahi-copilot-bridge.svg)](https://www.npmjs.com/package/betahi-copilot-bridge)
-[![license](https://img.shields.io/npm/l/betahi-copilot-bridge.svg)](https://github.com/betahi/copilot-bridge/blob/main/LICENSE)
+<p align="center">
+  <a href="https://www.npmjs.com/package/betahi-copilot-bridge"><img src="https://img.shields.io/npm/v/betahi-copilot-bridge.svg" alt="npm version"></a>
+  <a href="https://github.com/betahi/copilot-bridge/blob/main/LICENSE"><img src="https://img.shields.io/npm/l/betahi-copilot-bridge.svg" alt="license"></a>
+</p>
 
 > Use GitHub Copilot as a local OpenAI/Anthropic-compatible API, so [Codex CLI](https://github.com/openai/codex), [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview) and Continue can talk to Copilot with minimal configuration.
 
