@@ -254,13 +254,17 @@ function translateReasoningEffort(
 ): ChatCompletionsPayload["reasoning_effort"] {
   const modelId = translateModelName(payload.model, settings)
 
-  if (isClaudeModel(modelId)) {
+  if (isClaudeOpus47Model(modelId)) {
     return undefined
   }
 
   if (payload.reasoning_effort) {
     const requested = normalizeReasoningEffort(payload.reasoning_effort)
     return sanitizeReasoningEffortForModel(modelId, requested)
+  }
+
+  if (isClaudeModel(modelId)) {
+    return undefined
   }
 
   if (payload.thinking?.type !== "enabled") {
@@ -292,6 +296,7 @@ export function translateToOpenAI(
   settings?: Pick<ClaudeSettings, "env" | "model">,
 ): ChatCompletionsPayload {
   const model = translateModelName(payload.model, settings)
+  const tools = translateAnthropicToolsToOpenAI(payload.tools)
 
   return {
     model,
@@ -305,8 +310,11 @@ export function translateToOpenAI(
     output_config: translateOutputConfig(payload, settings),
     reasoning_effort: translateReasoningEffort(payload, settings),
     user: payload.metadata?.user_id,
-    tools: translateAnthropicToolsToOpenAI(payload.tools),
-    tool_choice: translateAnthropicToolChoiceToOpenAI(payload.tool_choice),
+    tools,
+    tool_choice:
+      tools && tools.length > 0 ?
+        translateAnthropicToolChoiceToOpenAI(payload.tool_choice)
+      : undefined,
   }
 }
 
@@ -459,7 +467,7 @@ function mapContent(
 function translateAnthropicToolsToOpenAI(
   anthropicTools: Array<AnthropicTool> | undefined,
 ): Array<Tool> | undefined {
-  if (!anthropicTools) {
+  if (!anthropicTools || anthropicTools.length === 0) {
     return undefined
   }
 

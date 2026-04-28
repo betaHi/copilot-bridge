@@ -5,7 +5,7 @@
   <a href="https://github.com/betahi/copilot-bridge/blob/main/LICENSE"><img src="https://img.shields.io/npm/l/betahi-copilot-bridge.svg" alt="license"></a>
 </p>
 
-> Use GitHub Copilot as a local OpenAI/Anthropic-compatible API, so [Codex CLI](https://github.com/openai/codex), [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview) and Continue can talk to Copilot with minimal configuration.
+> Use GitHub Copilot as a local OpenAI/Anthropic-compatible API, so [Codex CLI](https://developers.openai.com/codex/cli), [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview) and Continue can talk to Copilot with minimal configuration.
 
 > [!WARNING]
 > This is a reverse-engineered bridge for the GitHub Copilot API. It is not
@@ -153,12 +153,8 @@ Optional slot-specific:
 
 `MODEL_REASONING_EFFORT` (case-insensitive key lookup) is also read from the
 project-local `.claude/settings.json` and `.claude/settings.local.json` and
-applied to Claude requests only when the model supports reasoning.
-
-For backward compatibility, `COPILOT_REASONING_EFFORT` is accepted as an alias.
-
-If Claude-side reasoning is not configured, Claude requests fall back to
-`medium` (when the target model supports reasoning).
+applied to Claude requests only when the model supports reasoning. If it is not
+configured, Claude requests do not infer or attach a reasoning effort.
 
 ## Environment overrides
 
@@ -168,8 +164,7 @@ If Claude-side reasoning is not configured, Claude requests fall back to
 | `COPILOT_ACCOUNT_TYPE`     | `individual` \| `business` \| `enterprise`.          |
 | `COPILOT_BASE_URL`         | Override the upstream Copilot base URL.              |
 | `COPILOT_VSCODE_VERSION`   | Override the VS Code version sent upstream.          |
-| `MODEL_REASONING_EFFORT`   | Claude-side default reasoning effort (preferred key). |
-| `COPILOT_REASONING_EFFORT` | Alias of `MODEL_REASONING_EFFORT` (backward compatible). |
+| `MODEL_REASONING_EFFORT`   | Claude-side reasoning effort override.              |
 
 
 
@@ -217,13 +212,11 @@ accepts upstream.
 
 ### Reasoning effort
 
-If an unsupported value is sent for a reasoning-capable model, the bridge
-falls back to the model's default (`medium` for the GPT-5 / Claude Opus 4.7
-families) instead of forwarding an invalid request upstream. Set the default
-globally via `MODEL_REASONING_EFFORT` (or `COPILOT_REASONING_EFFORT` alias)
-(env, or `env` in
-`~/.claude/settings.json`); per-request `reasoning_effort` (or Anthropic
-`thinking.budget_tokens`) takes precedence.
+For OpenAI-compatible clients, unsupported reasoning values are clamped to the
+model capability table instead of being forwarded upstream. Claude-side
+reasoning can be set globally via `MODEL_REASONING_EFFORT` (env, or `env` in
+`~/.claude/settings.json`); invalid Claude-side values are ignored, and
+per-request `reasoning_effort` takes precedence.
 
 ## Development
 

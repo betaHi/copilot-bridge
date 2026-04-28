@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 
 import type { BridgeConfig, BridgeEnv } from "~/lib/config"
+import { chatCompletionRoutes } from "~/routes/chat-completions"
 import { responsesRoutes } from "~/routes/responses"
 
 import { Hono } from "hono"
@@ -11,7 +12,11 @@ interface CapturedRequest {
   body: unknown
 }
 
-const buildApp = (captured: Array<CapturedRequest>, response: Response) => {
+const buildApp = (
+  captured: Array<CapturedRequest>,
+  response: Response,
+  route: "chat-completions" | "responses" = "responses",
+) => {
   const config: BridgeConfig = {
     host: "127.0.0.1",
     port: 0,
@@ -25,7 +30,11 @@ const buildApp = (captured: Array<CapturedRequest>, response: Response) => {
     c.set("config", config)
     await next()
   })
-  app.route("/v1/responses", responsesRoutes)
+  if (route === "chat-completions") {
+    app.route("/v1/chat/completions", chatCompletionRoutes)
+  } else {
+    app.route("/v1/responses", responsesRoutes)
+  }
 
   const originalFetch = globalThis.fetch
   globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
@@ -81,6 +90,54 @@ describe("/v1/responses route — passthrough vs translation contract", () => {
     expect(captured).toHaveLength(1)
     expect(captured[0].url).toBe("https://upstream.test/responses")
     expect((captured[0].body as { model: string }).model).toBe("gpt-5.3-codex")
+  })
+
+  test("chat-completions routes responses-only GPT models directly to /responses", async () => {
+    const models = ["gpt-5.5", "gpt-5.2-codex"]
+
+    for (const model of models) {
+      const captured: Array<CapturedRequest> = []
+      const upstream = new Response(
+        JSON.stringify({
+          id: "resp-direct",
+          created_at: 1700000000,
+          model,
+          output: [
+            {
+              type: "message",
+              role: "assistant",
+              content: [{ type: "output_text", text: "OK" }],
+            },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      )
+      const { app, restore: r } = buildApp(captured, upstream, "chat-completions")
+      restore = r
+
+      const res = await app.request("/v1/chat/completions", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          model,
+          messages: [{ role: "user", content: "ping" }],
+          max_tokens: 16,
+          reasoning_effort: "high",
+          stream: false,
+        }),
+      })
+
+      expect(res.status).toBe(200)
+      expect(captured).toHaveLength(1)
+      expect(captured[0].url).toBe("https://upstream.test/responses")
+      expect((captured[0].body as { model: string }).model).toBe(model)
+      expect(
+        (captured[0].body as { reasoning?: { effort?: string } }).reasoning
+          ?.effort,
+      ).toBe("high")
+      restore()
+      restore = () => {}
+    }
   })
 
   test("alias-only model (gemini-3.1-pro) is rewritten and routed to chat/completions", async () => {

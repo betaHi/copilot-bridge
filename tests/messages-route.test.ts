@@ -134,6 +134,8 @@ const buildApp = (captured: Array<CapturedRequest>, response: Response) => {
 
 let restore: () => void = () => {}
 const originalHome = process.env.HOME
+const originalModelReasoningEffort = process.env.MODEL_REASONING_EFFORT
+const originalCopilotReasoningEffort = process.env.COPILOT_REASONING_EFFORT
 
 afterEach(() => {
   restore()
@@ -142,6 +144,16 @@ afterEach(() => {
     delete process.env.HOME
   } else {
     process.env.HOME = originalHome
+  }
+  if (originalModelReasoningEffort === undefined) {
+    delete process.env.MODEL_REASONING_EFFORT
+  } else {
+    process.env.MODEL_REASONING_EFFORT = originalModelReasoningEffort
+  }
+  if (originalCopilotReasoningEffort === undefined) {
+    delete process.env.COPILOT_REASONING_EFFORT
+  } else {
+    process.env.COPILOT_REASONING_EFFORT = originalCopilotReasoningEffort
   }
 })
 
@@ -536,6 +548,424 @@ describe("/v1/messages route", () => {
     expect((captured[0].body as { reasoning_effort?: string }).reasoning_effort).toBe(
       "high",
     )
+  })
+
+  test("does not infer reasoning effort for a plain Claude Sonnet request", async () => {
+    const tempHome = await mkdtemp(path.join(os.tmpdir(), "claude-settings-plain-sonnet-"))
+    process.env.HOME = tempHome
+    delete process.env.MODEL_REASONING_EFFORT
+    delete process.env.COPILOT_REASONING_EFFORT
+    await mkdir(path.join(tempHome, ".claude"), { recursive: true })
+    await writeFile(
+      path.join(tempHome, ".claude", "settings.json"),
+      JSON.stringify({ env: {} }, null, 2),
+    )
+
+    try {
+      const captured: Array<CapturedRequest> = []
+      const upstream = new Response(
+        JSON.stringify({
+          id: "chatcmpl-3b",
+          created: 1700000000,
+          model: "claude-sonnet-4.6",
+          choices: [
+            {
+              index: 0,
+              message: { role: "assistant", content: "OK" },
+              finish_reason: "stop",
+            },
+          ],
+          usage: { prompt_tokens: 9, completion_tokens: 2, total_tokens: 11 },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      )
+
+      const { app, restore: r } = buildApp(captured, upstream)
+      restore = r
+
+      const res = await app.request("/v1/messages", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          model: "claude-sonnet-4.6",
+          max_tokens: 1024,
+          messages: [{ role: "user", content: "Reply with OK" }],
+        }),
+      })
+
+      expect(res.status).toBe(200)
+      const body = captured[0].body as {
+        output_config?: { effort?: string }
+        reasoning_effort?: string
+      }
+      expect(body.reasoning_effort).toBeUndefined()
+      expect(body.output_config?.effort).toBeUndefined()
+    } finally {
+      await rm(tempHome, { recursive: true, force: true })
+    }
+  })
+
+  test("uses only MODEL_REASONING_EFFORT for Claude-side reasoning config", async () => {
+    const tempHome = await mkdtemp(path.join(os.tmpdir(), "claude-settings-model-effort-"))
+    process.env.HOME = tempHome
+    delete process.env.COPILOT_REASONING_EFFORT
+    process.env.MODEL_REASONING_EFFORT = "high"
+    await mkdir(path.join(tempHome, ".claude"), { recursive: true })
+    await writeFile(
+      path.join(tempHome, ".claude", "settings.json"),
+      JSON.stringify(
+        {
+          env: {
+            COPILOT_REASONING_EFFORT: "low",
+          },
+        },
+        null,
+        2,
+      ),
+    )
+
+    try {
+      const captured: Array<CapturedRequest> = []
+      const upstream = new Response(
+        JSON.stringify({
+          id: "chatcmpl-3c",
+          created: 1700000000,
+          model: "claude-sonnet-4.6",
+          choices: [
+            {
+              index: 0,
+              message: { role: "assistant", content: "OK" },
+              finish_reason: "stop",
+            },
+          ],
+          usage: { prompt_tokens: 9, completion_tokens: 2, total_tokens: 11 },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      )
+
+      const { app, restore: r } = buildApp(captured, upstream)
+      restore = r
+
+      const res = await app.request("/v1/messages", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          model: "claude-sonnet-4.6",
+          max_tokens: 1024,
+          messages: [{ role: "user", content: "Reply with OK" }],
+        }),
+      })
+
+      expect(res.status).toBe(200)
+      expect((captured[0].body as { reasoning_effort?: string }).reasoning_effort).toBe(
+        "high",
+      )
+    } finally {
+      await rm(tempHome, { recursive: true, force: true })
+    }
+  })
+
+  test("reads MODEL_REASONING_EFFORT from Claude settings", async () => {
+    const tempHome = await mkdtemp(path.join(os.tmpdir(), "claude-settings-model-env-"))
+    process.env.HOME = tempHome
+    delete process.env.MODEL_REASONING_EFFORT
+    delete process.env.COPILOT_REASONING_EFFORT
+    await mkdir(path.join(tempHome, ".claude"), { recursive: true })
+    await writeFile(
+      path.join(tempHome, ".claude", "settings.json"),
+      JSON.stringify(
+        {
+          env: {
+            MODEL_REASONING_EFFORT: "high",
+          },
+        },
+        null,
+        2,
+      ),
+    )
+
+    try {
+      const captured: Array<CapturedRequest> = []
+      const upstream = new Response(
+        JSON.stringify({
+          id: "chatcmpl-3c-settings",
+          created: 1700000000,
+          model: "claude-sonnet-4.6",
+          choices: [
+            {
+              index: 0,
+              message: { role: "assistant", content: "OK" },
+              finish_reason: "stop",
+            },
+          ],
+          usage: { prompt_tokens: 9, completion_tokens: 2, total_tokens: 11 },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      )
+
+      const { app, restore: r } = buildApp(captured, upstream)
+      restore = r
+
+      const res = await app.request("/v1/messages", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          model: "claude-sonnet-4.6",
+          max_tokens: 1024,
+          messages: [{ role: "user", content: "Reply with OK" }],
+        }),
+      })
+
+      expect(res.status).toBe(200)
+      expect((captured[0].body as { reasoning_effort?: string }).reasoning_effort).toBe(
+        "high",
+      )
+    } finally {
+      await rm(tempHome, { recursive: true, force: true })
+    }
+  })
+
+  test("ignores legacy COPILOT_REASONING_EFFORT for plain Claude requests", async () => {
+    const tempHome = await mkdtemp(path.join(os.tmpdir(), "claude-settings-copilot-effort-"))
+    process.env.HOME = tempHome
+    delete process.env.MODEL_REASONING_EFFORT
+    process.env.COPILOT_REASONING_EFFORT = "high"
+    await mkdir(path.join(tempHome, ".claude"), { recursive: true })
+    await writeFile(
+      path.join(tempHome, ".claude", "settings.json"),
+      JSON.stringify(
+        {
+          env: {
+            COPILOT_REASONING_EFFORT: "low",
+          },
+        },
+        null,
+        2,
+      ),
+    )
+
+    try {
+      const captured: Array<CapturedRequest> = []
+      const upstream = new Response(
+        JSON.stringify({
+          id: "chatcmpl-3d",
+          created: 1700000000,
+          model: "claude-sonnet-4.6",
+          choices: [
+            {
+              index: 0,
+              message: { role: "assistant", content: "OK" },
+              finish_reason: "stop",
+            },
+          ],
+          usage: { prompt_tokens: 9, completion_tokens: 2, total_tokens: 11 },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      )
+
+      const { app, restore: r } = buildApp(captured, upstream)
+      restore = r
+
+      const res = await app.request("/v1/messages", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          model: "claude-sonnet-4.6",
+          max_tokens: 1024,
+          messages: [{ role: "user", content: "Reply with OK" }],
+        }),
+      })
+
+      expect(res.status).toBe(200)
+      const body = captured[0].body as {
+        output_config?: { effort?: string }
+        reasoning_effort?: string
+      }
+      expect(body.reasoning_effort).toBeUndefined()
+      expect(body.output_config?.effort).toBeUndefined()
+    } finally {
+      await rm(tempHome, { recursive: true, force: true })
+    }
+  })
+
+  test("omits empty tool fields for Claude requests", async () => {
+    const captured: Array<CapturedRequest> = []
+    const upstream = new Response(
+      JSON.stringify({
+        id: "chatcmpl-3e",
+        created: 1700000000,
+        model: "claude-sonnet-4.6",
+        choices: [
+          {
+            index: 0,
+            message: { role: "assistant", content: "OK" },
+            finish_reason: "stop",
+          },
+        ],
+        usage: { prompt_tokens: 9, completion_tokens: 2, total_tokens: 11 },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    )
+
+    const { app, restore: r } = buildApp(captured, upstream)
+    restore = r
+
+    const res = await app.request("/v1/messages", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-sonnet-4.6",
+        max_tokens: 1024,
+        messages: [{ role: "user", content: "Reply with OK" }],
+        tools: [],
+        tool_choice: { type: "any" },
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    const body = captured[0].body as { tool_choice?: unknown; tools?: unknown }
+    expect(body.tools).toBeUndefined()
+    expect(body.tool_choice).toBeUndefined()
+  })
+
+  test("preserves non-empty Claude tools and tool choice", async () => {
+    const captured: Array<CapturedRequest> = []
+    const upstream = new Response(
+      JSON.stringify({
+        id: "chatcmpl-3f",
+        created: 1700000000,
+        model: "claude-sonnet-4.6",
+        choices: [
+          {
+            index: 0,
+            message: { role: "assistant", content: "OK" },
+            finish_reason: "stop",
+          },
+        ],
+        usage: { prompt_tokens: 9, completion_tokens: 2, total_tokens: 11 },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    )
+
+    const { app, restore: r } = buildApp(captured, upstream)
+    restore = r
+
+    const res = await app.request("/v1/messages", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-sonnet-4.6",
+        max_tokens: 1024,
+        messages: [{ role: "user", content: "Reply with OK" }],
+        tools: [
+          {
+            name: "lookup",
+            description: "lookup data",
+            input_schema: { type: "object", properties: {} },
+          },
+        ],
+        tool_choice: { type: "any" },
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    const body = captured[0].body as {
+      tool_choice?: unknown
+      tools?: Array<{ function: { name: string } }>
+    }
+    expect(body.tools?.[0]?.function.name).toBe("lookup")
+    expect(body.tool_choice).toBe("required")
+  })
+
+  test("handles Claude Code style tool history without legacy reasoning injection", async () => {
+    const tempHome = await mkdtemp(path.join(os.tmpdir(), "claude-settings-tool-history-"))
+    process.env.HOME = tempHome
+    delete process.env.MODEL_REASONING_EFFORT
+    process.env.COPILOT_REASONING_EFFORT = "high"
+    await mkdir(path.join(tempHome, ".claude"), { recursive: true })
+    await writeFile(
+      path.join(tempHome, ".claude", "settings.json"),
+      JSON.stringify(
+        {
+          env: {
+            COPILOT_REASONING_EFFORT: "xhigh",
+          },
+        },
+        null,
+        2,
+      ),
+    )
+
+    try {
+      const captured: Array<CapturedRequest> = []
+      const upstream = new Response(
+        JSON.stringify({
+          id: "chatcmpl-3g",
+          created: 1700000000,
+          model: "claude-sonnet-4.6",
+          choices: [
+            {
+              index: 0,
+              message: { role: "assistant", content: "OK" },
+              finish_reason: "stop",
+            },
+          ],
+          usage: { prompt_tokens: 9, completion_tokens: 2, total_tokens: 11 },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      )
+
+      const { app, restore: r } = buildApp(captured, upstream)
+      restore = r
+
+      const res = await app.request("/v1/messages", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          model: "claude-sonnet-4.6",
+          max_tokens: 1024,
+          messages: [
+            { role: "user", content: "Use the tool" },
+            {
+              role: "assistant",
+              content: [
+                {
+                  type: "tool_use",
+                  id: "toolu_1",
+                  name: "lookup",
+                  input: { q: "status" },
+                },
+              ],
+            },
+            {
+              role: "user",
+              content: [
+                { type: "tool_result", tool_use_id: "toolu_1", content: "ok" },
+                { type: "text", text: "Continue" },
+              ],
+            },
+          ],
+        }),
+      })
+
+      expect(res.status).toBe(200)
+      const body = captured[0].body as {
+        messages?: Array<{ role?: string; tool_calls?: Array<{ id?: string }> }>
+        output_config?: { effort?: string }
+        reasoning_effort?: string
+      }
+      expect(body.reasoning_effort).toBeUndefined()
+      expect(body.output_config?.effort).toBeUndefined()
+      expect(body.messages?.map((message) => message.role)).toEqual([
+        "user",
+        "assistant",
+        "tool",
+        "user",
+      ])
+      expect(body.messages?.[1]?.tool_calls?.[0]?.id).toBe("toolu_1")
+    } finally {
+      await rm(tempHome, { recursive: true, force: true })
+    }
   })
 
   test("does not attach reasoning effort to Claude models without reasoning support", async () => {

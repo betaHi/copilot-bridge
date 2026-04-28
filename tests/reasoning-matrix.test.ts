@@ -139,7 +139,6 @@ beforeAll(() => {
   process.env.HOME = tempHome
   process.chdir(tempHome)
   delete process.env.MODEL_REASONING_EFFORT
-  delete process.env.COPILOT_REASONING_EFFORT
 
   runtimeState.models = {
     object: "list",
@@ -237,7 +236,7 @@ describe("reasoning matrix: /v1/chat/completions", () => {
 })
 
 describe("reasoning matrix: /v1/messages", () => {
-  test("derives Claude-client default reasoning from the capability table for every model", async () => {
+  test("does not infer reasoning for plain Claude-client requests", async () => {
     for (const capability of MODEL_CAPABILITIES) {
       const captured: Array<CapturedRequest> = []
       const { app, restore: r } = buildApp("messages", captured)
@@ -262,15 +261,13 @@ describe("reasoning matrix: /v1/messages", () => {
       }
 
       if (request.url.endsWith("/responses")) {
-        expect(body.reasoning?.effort).toBe(
-          expectedResponsesReasoningEffort(capability.reasoning?.default),
-        )
+        expect(body.reasoning?.effort).toBeUndefined()
         expect(body.reasoning_effort).toBeUndefined()
         expect(body.output_config?.effort).toBeUndefined()
       } else {
         const expected = expectedChatReasoningFields(
           capability.reasoningField,
-          capability.reasoning?.default,
+          undefined,
         )
         expect(body.output_config?.effort).toBe(expected.outputEffort)
         expect(body.reasoning_effort).toBe(expected.reasoningEffort)

@@ -1,6 +1,6 @@
 {
   "name": "betahi-copilot-bridge",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Model-layer bridge for routing Codex CLI, Claude Code, and similar clients to GitHub Copilot.",
   "keywords": [
     "github-copilot",

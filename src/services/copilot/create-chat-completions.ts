@@ -125,11 +125,8 @@ const getConfiguredReasoningEffort = (
   }
 
   return (
-    // Prefer the normalized key name, keep COPILOT_* as a compatibility alias.
     process.env.MODEL_REASONING_EFFORT
-    ?? process.env.COPILOT_REASONING_EFFORT
     ?? getEnvValueCaseInsensitive(claudeSettingsEnv, "MODEL_REASONING_EFFORT")
-    ?? getEnvValueCaseInsensitive(claudeSettingsEnv, "COPILOT_REASONING_EFFORT")
   )
 }
 
@@ -144,9 +141,7 @@ const getRequestedReasoningEffort = (
   )
 
   const defaultEffort =
-    client === "claude" ?
-      clampReasoningEffort(payload.model, undefined)?.effort
-    : defaultReasoningEffort(payload.model)
+    client === "claude" ? undefined : defaultReasoningEffort(payload.model)
 
   const requestedReasoningEffort =
     payload.reasoning_effort
@@ -176,7 +171,6 @@ const getRequestedClaudeOpus47Effort = (
     payload.output_config?.effort
     ?? normalizeClaudeOpus47Effort(payload.reasoning_effort)
     ?? normalizeClaudeOpus47Effort(configuredReasoningEffort)
-    ?? (client === "claude" ? "medium" : undefined)
   )
 }
 

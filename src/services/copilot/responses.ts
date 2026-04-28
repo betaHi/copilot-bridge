@@ -171,7 +171,8 @@ interface CreateChunkOptions {
   usage?: ChatCompletionChunk["usage"]
 }
 
-const RESPONSES_ONLY_MODEL_PATTERN = /^(?:gpt-5\.3-codex|gpt-5\.4-mini)(?:-|$)/i
+const RESPONSES_ONLY_MODEL_PATTERN =
+  /^(?:gpt-5\.5|gpt-5\.4-mini|gpt-5\.3-codex|gpt-5\.2-codex)(?:-|$)/i
 
 export function shouldUseResponsesApiForModel(model: string): boolean {
   return RESPONSES_ONLY_MODEL_PATTERN.test(model)
