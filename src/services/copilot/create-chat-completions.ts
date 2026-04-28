@@ -4,6 +4,7 @@ import { events } from "fetch-event-stream"
 import type { BridgeConfig } from "~/lib/config"
 import { HTTPError } from "~/lib/error"
 import { getClaudeSettingsEnv } from "~/lib/claude-settings"
+import { clampReasoningEffort } from "~/lib/model-capabilities"
 import { fetchCopilot, getCopilotProviderContext } from "~/providers/copilot/client"
 import type {
   ChatCompletionResponse,
@@ -38,30 +39,6 @@ const defaultReasoningEffort = (
 ): ChatCompletionsPayload["reasoning_effort"] =>
   usesMaxCompletionTokens(modelId) ? "medium" : undefined
 
-const getAllowedReasoningEfforts = (
-  modelId: string,
-): Array<
-  Exclude<ChatCompletionsPayload["reasoning_effort"], null | undefined>
-> => {
-  if (modelId.startsWith("gpt-5.5")) {
-    return ["none", "low", "medium", "high", "xhigh"]
-  }
-
-  if (modelId.startsWith("gpt-5.4-mini")) {
-    return ["none", "low", "medium"]
-  }
-
-  if (modelId.startsWith("gpt-5.4") || modelId.startsWith("gpt-5.3-codex")) {
-    return ["low", "medium", "high", "xhigh"]
-  }
-
-  if (usesMaxCompletionTokens(modelId)) {
-    return ["low", "medium", "high", "xhigh"]
-  }
-
-  return []
-}
-
 export const sanitizeReasoningEffortForModel = (
   modelId: string,
   reasoningEffort: ChatCompletionsPayload["reasoning_effort"],
@@ -70,9 +47,7 @@ export const sanitizeReasoningEffortForModel = (
     return undefined
   }
 
-  return getAllowedReasoningEfforts(modelId).includes(reasoningEffort) ?
-      reasoningEffort
-    : undefined
+  return clampReasoningEffort(modelId, reasoningEffort)?.effort
 }
 
 const normalizeReasoningEffort = (
@@ -169,7 +144,9 @@ const getRequestedReasoningEffort = (
   )
 
   const defaultEffort =
-    client === "claude" ? "medium" : defaultReasoningEffort(payload.model)
+    client === "claude" ?
+      clampReasoningEffort(payload.model, undefined)?.effort
+    : defaultReasoningEffort(payload.model)
 
   const requestedReasoningEffort =
     payload.reasoning_effort
@@ -264,19 +241,11 @@ const buildRequestPayload = (
           }
         : payload.output_config,
       reasoning_effort:
-        shouldAttachReasoningEffort ? (
-          payload.reasoning_effort
-        ) : undefined,
+        shouldAttachReasoningEffort ? reasoningEffort : undefined,
       user: sanitizeUserIdentifier(payload.user),
     }
 
-    return (
-      !shouldAttachReasoningEffort
-      || reasoningEffort === null
-      || reasoningEffort === undefined
-    ) ?
-        sanitizedPayload
-      : { ...sanitizedPayload, reasoning_effort: reasoningEffort }
+    return sanitizedPayload
   }
 
   return {
@@ -346,7 +315,10 @@ export const createChatCompletions = async (
       })
     }
 
-    consola.error("Failed to create chat completions", response)
+    await logUpstreamError("Failed to create chat completions", response, {
+      model: payload.model,
+      route: "/chat/completions",
+    })
     throw new HTTPError("Failed to create chat completions", response)
   }
 
@@ -387,7 +359,10 @@ async function createResponses(
   )
 
   if (!response.ok) {
-    consola.error("Failed to create responses", response)
+    await logUpstreamError("Failed to create responses", response, {
+      model: payload.model,
+      route: "/responses",
+    })
     throw new HTTPError("Failed to create responses", response)
   }
 
@@ -398,6 +373,22 @@ async function createResponses(
   return translateResponsesToChatCompletion(
     (await response.json()) as ResponsesApiResponse,
   )
+}
+
+async function logUpstreamError(
+  message: string,
+  response: Response,
+  context: { model: string; route: string },
+): Promise<void> {
+  const errorBody = await response.clone().text().catch(() => "")
+
+  consola.error(message, {
+    route: context.route,
+    model: context.model,
+    status: response.status,
+    statusText: response.statusText,
+    body: errorBody || undefined,
+  })
 }
 
 async function shouldRetryWithResponses(response: Response): Promise<boolean> {

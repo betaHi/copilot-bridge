@@ -123,7 +123,20 @@ Bridge endpoints: `POST /v1/messages`, `POST /v1/messages/count_tokens`.
 or port. Pass `--no-claude-setup` to skip this. All other keys in your
 settings file (model overrides, plugins, marketplaces) are preserved.
 
-If you prefer to wire it yourself:
+Minimal recommended config is:
+
+```json
+{
+  "env": {
+    "ANTHROPIC_BASE_URL": "http://127.0.0.1:4142",
+    "ANTHROPIC_AUTH_TOKEN": "dummy",
+    "ANTHROPIC_MODEL": "claude-opus-4.7",
+    "MODEL_REASONING_EFFORT": "medium"
+  }
+}
+```
+
+Optional slot-specific:
 
 ```json
 {
@@ -134,8 +147,7 @@ If you prefer to wire it yourself:
     "ANTHROPIC_DEFAULT_SONNET_MODEL": "claude-sonnet-4.6",
     "ANTHROPIC_SMALL_FAST_MODEL": "claude-haiku-4.5",
     "MODEL_REASONING_EFFORT": "medium"
-  },
-  "model": "claude-opus-4.7"
+  }
 }
 ```
 

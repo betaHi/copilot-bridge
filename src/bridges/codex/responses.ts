@@ -3,6 +3,7 @@ import { z } from "zod"
 import {
   clampReasoningEffort,
   getModelCapability,
+  isTextVerbosity,
   resolveModelId,
 } from "~/lib/model-capabilities"
 
@@ -20,6 +21,11 @@ interface ReasoningField {
   [key: string]: unknown
 }
 
+interface TextField {
+  verbosity?: unknown
+  [key: string]: unknown
+}
+
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value)
 
@@ -27,7 +33,7 @@ export const normalizeCodexResponsesRequest = (
   payload: CodexResponsesRequest,
 ): CodexResponsesRequest => {
   const parsed = codexResponsesRequestSchema.parse(payload) as CodexResponsesRequest
-    & { reasoning?: ReasoningField }
+    & { reasoning?: ReasoningField; text?: TextField }
 
   const canonical = resolveModelId(parsed.model)
   const capability = getModelCapability(canonical)
@@ -47,6 +53,19 @@ export const normalizeCodexResponsesRequest = (
   const clamped = clampReasoningEffort(canonical, incoming?.effort)
   if (clamped) {
     next.reasoning = { ...(incoming ?? {}), effort: clamped.effort }
+  }
+
+  const text = isPlainObject(next.text) ? (next.text as TextField) : undefined
+  if (text && capability.textVerbosity && "verbosity" in text) {
+    const { supported, default: defaultVerbosity } = capability.textVerbosity
+    const verbosity = text.verbosity
+    next.text = {
+      ...text,
+      verbosity:
+        isTextVerbosity(verbosity) && supported.includes(verbosity) ?
+          verbosity
+        : defaultVerbosity,
+    }
   }
 
   return next

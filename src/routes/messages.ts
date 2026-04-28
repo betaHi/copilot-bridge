@@ -14,6 +14,7 @@ import {
   translateChunkToAnthropicEvents,
   translateErrorToAnthropicErrorEvent,
 } from "~/bridges/claude/stream-translation"
+import { getClaudeSettings } from "~/lib/claude-settings"
 import type { BridgeEnv } from "~/lib/config"
 import { BridgeNotImplementedError, HTTPError } from "~/lib/error"
 import { checkRateLimit, RateLimitError } from "~/lib/rate-limit"
@@ -45,7 +46,8 @@ messageRoutes.post("/", async (c) => {
     throw error
   }
   const anthropicPayload = await c.req.json<AnthropicMessagesPayload>()
-  const openAIPayload = translateToOpenAI(anthropicPayload)
+  const claudeSettings = await getClaudeSettings()
+  const openAIPayload = translateToOpenAI(anthropicPayload, claudeSettings)
 
   try {
     const response = await createChatCompletions(config, openAIPayload, {
@@ -125,7 +127,8 @@ messageRoutes.post("/count_tokens", async (c) => {
   try {
     const anthropicBeta = c.req.header("anthropic-beta")
     const anthropicPayload = await c.req.json<AnthropicMessagesPayload>()
-    const openAIPayload = translateToOpenAI(anthropicPayload)
+    const claudeSettings = await getClaudeSettings()
+    const openAIPayload = translateToOpenAI(anthropicPayload, claudeSettings)
 
     const selectedModel = resolveModel(openAIPayload.model)
 

@@ -70,6 +70,14 @@ describe("model-capabilities: clampReasoningEffort", () => {
     expect(out?.reason).toBe("unsupported-effort")
   })
 
+  test("Codex CLI minimal effort maps to the lowest upstream effort", () => {
+    expect(clampReasoningEffort("gpt-5.4", "minimal")).toEqual({
+      effort: "low",
+      changed: true,
+      reason: "unsupported-effort",
+    })
+  })
+
   test("claude-opus-4.7 accepts max", () => {
     expect(clampReasoningEffort("claude-opus-4.7", "max")).toEqual({
       effort: "max",

@@ -8,16 +8,12 @@ const normalizeModelId = (modelId: string): string =>
 const stripSnapshotSuffix = (modelId: string): string => {
   const id = modelId.trim().toLowerCase().replace(/\[1m\]$/, "")
 
-  if (id.startsWith("claude-sonnet-4-")) {
-    return "claude-sonnet-4"
-  }
-
-  if (/^claude-opus-4-7-\d{8}$/.test(id)) {
-    return "claude-opus-4.7"
-  }
-
-  if (id.startsWith("claude-opus-4-")) {
-    return "claude-opus-4"
+  const claudeSnapshotMatch = id.match(
+    /^claude-(opus|sonnet|haiku)-(\d)-(\d)(-1m)?(?:-\d{8})?$/,
+  )
+  if (claudeSnapshotMatch) {
+    const [, family, major, minor, contextWindow = ""] = claudeSnapshotMatch
+    return `claude-${family}-${major}.${minor}${contextWindow}`
   }
 
   return id
@@ -26,6 +22,15 @@ const stripSnapshotSuffix = (modelId: string): string => {
 const getAliasCandidates = (modelId: string): Array<string> => {
   const canonicalModelId = stripSnapshotSuffix(modelId)
   const aliases = new Set<string>([canonicalModelId])
+
+  const canonicalClaudeMatch = canonicalModelId.match(
+    /^claude-(opus|sonnet|haiku)-(\d+)\.(\d+)(-1m)?$/,
+  )
+  if (canonicalClaudeMatch) {
+    const [, family, major, minor, contextWindow = ""] = canonicalClaudeMatch
+    aliases.add(`claude-${family}-${major}-${minor}${contextWindow}`)
+    return [...aliases]
+  }
 
   const familyMatch = canonicalModelId.match(
     /^[a-z]+(?:-[a-z]+)*-\d+(?:\.\d+)?/,

@@ -10,6 +10,8 @@ export type ReasoningEffort =
   | "xhigh"
   | "max"
 
+export type TextVerbosity = "low" | "medium" | "high"
+
 export interface ModelCapability {
   id: string
   // Optional aliases that resolve to this canonical id (e.g. trimming a
@@ -21,6 +23,10 @@ export interface ModelCapability {
   reasoning?: {
     supported: ReadonlyArray<ReasoningEffort>
     default: ReasoningEffort
+  }
+  textVerbosity?: {
+    supported: ReadonlyArray<TextVerbosity>
+    default: TextVerbosity
   }
   // When set, /v1/responses requests for this model are translated to
   // upstream /v1/chat/completions because Copilot does not expose the
@@ -73,6 +79,10 @@ export const MODEL_CAPABILITIES: ReadonlyArray<ModelCapability> = [
     id: "gpt-5.2-codex",
     reasoning: {
       supported: ["low", "medium", "high", "xhigh"],
+      default: "medium",
+    },
+    textVerbosity: {
+      supported: ["medium"],
       default: "medium",
     },
   },
@@ -187,6 +197,12 @@ export const isReasoningEffort = (value: unknown): value is ReasoningEffort =>
   || value === "xhigh"
   || value === "max"
 
+export const isTextVerbosity = (value: unknown): value is TextVerbosity =>
+  value === "low" || value === "medium" || value === "high"
+
+const normalizeRequestedReasoningEffort = (requested: unknown): unknown =>
+  requested === "minimal" ? "low" : requested
+
 export interface NormalizedReasoning {
   effort: ReasoningEffort
   changed: boolean
@@ -208,7 +224,9 @@ export const clampReasoningEffort = (
     return { effort: defaultEffort, changed: false }
   }
 
-  if (!isReasoningEffort(requested)) {
+  const normalizedRequested = normalizeRequestedReasoningEffort(requested)
+
+  if (!isReasoningEffort(normalizedRequested)) {
     return {
       effort: defaultEffort,
       changed: true,
@@ -216,8 +234,13 @@ export const clampReasoningEffort = (
     }
   }
 
-  if (supported.includes(requested)) {
-    return { effort: requested, changed: false }
+  if (supported.includes(normalizedRequested)) {
+    return {
+      effort: normalizedRequested,
+      changed: normalizedRequested !== requested,
+      reason:
+        normalizedRequested !== requested ? "unsupported-effort" : undefined,
+    }
   }
 
   // Pick the closest supported value by ordering low<medium<high<xhigh<max,
@@ -231,7 +254,7 @@ export const clampReasoningEffort = (
     "xhigh",
     "max",
   ]
-  const reqIdx = order.indexOf(requested)
+  const reqIdx = order.indexOf(normalizedRequested)
   const supportedSorted = [...supported].sort(
     (a, b) => order.indexOf(a) - order.indexOf(b),
   )

@@ -8,6 +8,10 @@ import {
   readClaudeBaseUrl,
 } from "~/lib/claude-settings"
 import {
+  buildClaudeLaunchCommand,
+  pickClaudeLaunchDefaults,
+} from "~/lib/claude-launch"
+import {
   applyCodexConfig,
   readCodexUserConfigFromDisk,
 } from "~/lib/codex-config"
@@ -73,16 +77,22 @@ export const start = defineCommand({
       default: false,
       description: "Print GitHub and Copilot tokens during startup.",
     },
-    "no-codex-setup": {
+    "codex-setup": {
       type: "boolean",
-      default: false,
+      default: true,
       description: "Skip writing the bridge provider into ~/.codex/config.toml.",
     },
-    "no-claude-setup": {
+    "claude-setup": {
+      type: "boolean",
+      default: true,
+      description:
+        "Skip writing ANTHROPIC_BASE_URL into ~/.claude/settings.json.",
+    },
+    "claude-code": {
       type: "boolean",
       default: false,
       description:
-        "Skip writing ANTHROPIC_BASE_URL into ~/.claude/settings.json.",
+        "Print a one-shot `export ... && claude` command and do not modify user config files.",
     },
     "select-model": {
       type: "boolean",
@@ -90,9 +100,9 @@ export const start = defineCommand({
       description:
         "Force the model picker even when ~/.codex/config.toml already has a model.",
     },
-    "no-prompt": {
+    prompt: {
       type: "boolean",
-      default: false,
+      default: true,
       description:
         "Never prompt; use the existing model from ~/.codex/config.toml as-is.",
     },
@@ -162,12 +172,19 @@ export const start = defineCommand({
 
     const baseUrl = `http://${config.host}:${config.port}`
     const codexConfigPath = CODEX_DEFAULTS.configPath
+    const isClaudeCodeMode = Boolean(args["claude-code"])
 
     // Sync Claude Code's settings.json and Codex's config.toml *before* any
     // potentially blocking interactive prompt. This guarantees `claude` and
     // `codex` work the moment the server is listening — even if the user
     // never answers the model picker below.
-    if (!args["no-claude-setup"]) {
+    if (isClaudeCodeMode) {
+      consola.info(
+        "--claude-code mode: not modifying ~/.claude/settings.json or ~/.codex/config.toml",
+      )
+    }
+
+    if (!isClaudeCodeMode && args["claude-setup"]) {
       try {
         const claudeResult = await applyClaudeConfig({
           baseUrl,
@@ -212,7 +229,7 @@ export const start = defineCommand({
       )
     }
 
-    if (!args["no-codex-setup"]) {
+    if (!isClaudeCodeMode && args["codex-setup"]) {
       try {
         const result = await applyCodexConfig({
           baseUrl: `${baseUrl}/v1`,
@@ -272,7 +289,9 @@ export const start = defineCommand({
     )
 
     const shouldPrompt =
-      !args["no-prompt"]
+      !isClaudeCodeMode
+      &&
+      args.prompt
       && finalPickable.length > 0
       && (args["select-model"] || !chosenModel)
 
@@ -303,7 +322,7 @@ export const start = defineCommand({
           chosenEffort = undefined
         }
         // Re-stamp codex config with the user's freshly picked model.
-        if (!args["no-codex-setup"]) {
+        if (args["codex-setup"]) {
           try {
             const result = await applyCodexConfig({
               baseUrl: `${baseUrl}/v1`,
@@ -323,6 +342,37 @@ export const start = defineCommand({
           }
         }
       }
+    }
+
+    if (isClaudeCodeMode) {
+      const defaults = pickClaudeLaunchDefaults(finalPickable, chosenModel)
+      let selectedModel = defaults.model
+
+      if (args.prompt && finalPickable.length > 0) {
+        selectedModel = (await consola.prompt(
+          "Select a model to use with Claude Code",
+          {
+            type: "select",
+            options: finalPickable,
+            initial: defaults.model,
+          },
+        )) as string
+      }
+
+      const command = buildClaudeLaunchCommand({
+        baseUrl,
+        model: selectedModel,
+      })
+
+      consola.box(
+        [
+          "Claude one-shot command",
+          "",
+          `  ${command}`,
+          "",
+          "  The bridge verified this path with explicit --model; current Claude CLI did not reliably honor ANTHROPIC_MODEL env defaults.",
+        ].join("\n"),
+      )
     }
 
     await new Promise<void>((resolve, reject) => {

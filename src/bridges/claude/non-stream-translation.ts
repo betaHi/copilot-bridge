@@ -1,4 +1,5 @@
 import { resolveUpstreamModelId } from "~/lib/models-resolver"
+import type { ClaudeSettings } from "~/lib/claude-settings"
 import { sanitizeReasoningEffortForModel } from "~/services/copilot/create-chat-completions"
 import type {
   ChatCompletionResponse,
@@ -27,7 +28,25 @@ import {
 import { mapOpenAIStopReasonToAnthropic } from "~/bridges/claude/utils"
 
 const normalizeClaudeModelAlias = (model: string): string => {
-  const normalized = model.trim().toLowerCase().replace(/\[1m\]$/, "")
+  const trimmed = model.trim().toLowerCase()
+
+  if (trimmed === "opus[1m]") {
+    return "claude-opus-4.6-1m"
+  }
+
+  const normalized = trimmed.replace(/\[1m\]$/, "")
+
+  if (normalized === "opus") {
+    return "claude-opus"
+  }
+
+  if (normalized === "sonnet") {
+    return "claude-sonnet"
+  }
+
+  if (normalized === "haiku") {
+    return "claude-haiku"
+  }
 
   if (/^claude-(opus|sonnet|haiku)-\d-\d(?:-1m)?$/.test(normalized)) {
     return normalized.replace(
@@ -43,8 +62,61 @@ const normalizeClaudeModelAlias = (model: string): string => {
   return normalized
 }
 
-function translateModelName(model: string): string {
-  return resolveUpstreamModelId(normalizeClaudeModelAlias(model))
+const getConfiguredClaudeDefaultModel = (
+  settings: Pick<ClaudeSettings, "env" | "model"> | undefined,
+): string | undefined => {
+  if (!settings) {
+    return undefined
+  }
+
+  const env = settings.env ?? {}
+  const topLevelModel = settings.model?.trim()
+  const anthropicModel = env.ANTHROPIC_MODEL
+
+  if (!topLevelModel) {
+    return anthropicModel
+  }
+
+  switch (topLevelModel.toLowerCase()) {
+    case "opus[1m]": {
+      return env.ANTHROPIC_DEFAULT_OPUS_MODEL ?? topLevelModel
+    }
+    case "opus": {
+      return env.ANTHROPIC_DEFAULT_OPUS_MODEL ?? topLevelModel
+    }
+    case "sonnet": {
+      return env.ANTHROPIC_DEFAULT_SONNET_MODEL ?? topLevelModel
+    }
+    case "haiku": {
+      return (
+        env.ANTHROPIC_DEFAULT_HAIKU_MODEL
+        ?? env.ANTHROPIC_SMALL_FAST_MODEL
+        ?? topLevelModel
+      )
+    }
+    default: {
+      return topLevelModel
+    }
+  }
+}
+
+const resolveClaudeRequestedModel = (
+  model: string,
+  settings: Pick<ClaudeSettings, "env" | "model"> | undefined,
+): string => {
+  if (model.trim().toLowerCase() !== "definitely-not-a-real-model") {
+    return model
+  }
+
+  return getConfiguredClaudeDefaultModel(settings) ?? model
+}
+
+function translateModelName(
+  model: string,
+  settings?: Pick<ClaudeSettings, "env" | "model">,
+): string {
+  const requestedModel = resolveClaudeRequestedModel(model, settings)
+  return resolveUpstreamModelId(normalizeClaudeModelAlias(requestedModel))
 }
 
 function isClaudeModel(modelId: string): boolean {
@@ -118,8 +190,9 @@ function getClaudeOpus47Effort(
 
 function translateThinking(
   payload: AnthropicMessagesPayload,
+  settings?: Pick<ClaudeSettings, "env" | "model">,
 ): ChatCompletionsPayload["thinking"] {
-  const modelId = translateModelName(payload.model)
+  const modelId = translateModelName(payload.model, settings)
 
   if (!isClaudeOpus47Model(modelId)) {
     return undefined
@@ -134,8 +207,9 @@ function translateThinking(
 
 function translateOutputConfig(
   payload: AnthropicMessagesPayload,
+  settings?: Pick<ClaudeSettings, "env" | "model">,
 ): ChatCompletionsPayload["output_config"] {
-  const modelId = translateModelName(payload.model)
+  const modelId = translateModelName(payload.model, settings)
 
   if (!isClaudeOpus47Model(modelId)) {
     return undefined
@@ -176,8 +250,9 @@ function normalizeReasoningEffort(
 
 function translateReasoningEffort(
   payload: AnthropicMessagesPayload,
+  settings?: Pick<ClaudeSettings, "env" | "model">,
 ): ChatCompletionsPayload["reasoning_effort"] {
-  const modelId = translateModelName(payload.model)
+  const modelId = translateModelName(payload.model, settings)
 
   if (isClaudeModel(modelId)) {
     return undefined
@@ -214,8 +289,9 @@ function translateReasoningEffort(
 
 export function translateToOpenAI(
   payload: AnthropicMessagesPayload,
+  settings?: Pick<ClaudeSettings, "env" | "model">,
 ): ChatCompletionsPayload {
-  const model = translateModelName(payload.model)
+  const model = translateModelName(payload.model, settings)
 
   return {
     model,
@@ -225,9 +301,9 @@ export function translateToOpenAI(
     stream: payload.stream,
     temperature: payload.temperature,
     top_p: payload.top_p,
-    thinking: translateThinking(payload),
-    output_config: translateOutputConfig(payload),
-    reasoning_effort: translateReasoningEffort(payload),
+    thinking: translateThinking(payload, settings),
+    output_config: translateOutputConfig(payload, settings),
+    reasoning_effort: translateReasoningEffort(payload, settings),
     user: payload.metadata?.user_id,
     tools: translateAnthropicToolsToOpenAI(payload.tools),
     tool_choice: translateAnthropicToolChoiceToOpenAI(payload.tool_choice),

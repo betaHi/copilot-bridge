@@ -6,6 +6,12 @@ import consola from "consola"
 
 interface ClaudeSettingsFile {
   env?: Record<string, unknown>
+  model?: unknown
+}
+
+export interface ClaudeSettings {
+  env: Record<string, string>
+  model?: string
 }
 
 const getClaudeSettingsPaths = (): Array<string> => {
@@ -65,13 +71,17 @@ export const parsePortFromBaseUrl = (
   }
 }
 
-export const getClaudeSettingsEnv = async (): Promise<
-  Record<string, string>
-> => {
+export const getClaudeSettings = async (): Promise<ClaudeSettings> => {
   const merged: Record<string, string> = {}
+  let model: string | undefined
 
   for (const filePath of getClaudeSettingsPaths()) {
     const settings = await readClaudeSettingsFile(filePath)
+
+    if (typeof settings?.model === "string") {
+      model = settings.model
+    }
+
     if (!settings?.env) continue
 
     for (const [key, value] of Object.entries(settings.env)) {
@@ -79,8 +89,12 @@ export const getClaudeSettingsEnv = async (): Promise<
     }
   }
 
-  return merged
+  return { env: merged, model }
 }
+
+export const getClaudeSettingsEnv = async (): Promise<
+  Record<string, string>
+> => (await getClaudeSettings()).env
 
 interface ApplyClaudeConfigInput {
   baseUrl: string
