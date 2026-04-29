@@ -5,6 +5,11 @@ import type { BridgeConfig } from "~/lib/config"
 import { HTTPError } from "~/lib/error"
 import { getClaudeSettingsEnv } from "~/lib/claude-settings"
 import { clampReasoningEffort } from "~/lib/model-capabilities"
+import { runtimeState } from "~/lib/state"
+import {
+  summarizeToolsForDiagnostics,
+  type ToolDiagnostics,
+} from "~/lib/upstream-diagnostics"
 import { fetchCopilot, getCopilotProviderContext } from "~/providers/copilot/client"
 import type {
   ChatCompletionResponse,
@@ -33,11 +38,6 @@ type ClaudeOpus47Effort = NonNullable<
 type ClientKind = "claude" | "codex" | "generic"
 
 const MAX_USER_LENGTH = 64
-
-const defaultReasoningEffort = (
-  modelId: string,
-): ChatCompletionsPayload["reasoning_effort"] =>
-  usesMaxCompletionTokens(modelId) ? "medium" : undefined
 
 export const sanitizeReasoningEffortForModel = (
   modelId: string,
@@ -140,17 +140,11 @@ const getRequestedReasoningEffort = (
     claudeSettingsEnv,
   )
 
-  const defaultEffort =
-    client === "claude" ? undefined : defaultReasoningEffort(payload.model)
-
   const requestedReasoningEffort =
     payload.reasoning_effort
     ?? normalizeReasoningEffort(configuredReasoningEffort)
 
-  return (
-    sanitizeReasoningEffortForModel(payload.model, requestedReasoningEffort)
-    ?? defaultEffort
-  )
+  return sanitizeReasoningEffortForModel(payload.model, requestedReasoningEffort)
 }
 
 const getRequestedClaudeOpus47Effort = (
@@ -191,6 +185,30 @@ type ChatCompletionsRequestPayload = Omit<
   max_tokens?: number | null
   max_completion_tokens?: number | null
 }
+
+type RequestDiagnostics = {
+  max_completion_tokens?: number | null
+  max_tokens?: number | null
+  message_count: number
+  output_config_effort?: unknown
+  reasoning_effort?: unknown
+  stream?: boolean
+  tool_choice?: unknown
+  tools?: ToolDiagnostics
+}
+
+const summarizeRequestForDiagnostics = (
+  payload: ChatCompletionsRequestPayload,
+): RequestDiagnostics => ({
+  max_completion_tokens: payload.max_completion_tokens,
+  max_tokens: payload.max_tokens,
+  message_count: payload.messages.length,
+  output_config_effort: payload.output_config?.effort,
+  reasoning_effort: payload.reasoning_effort,
+  stream: payload.stream ?? undefined,
+  tool_choice: payload.tool_choice,
+  tools: summarizeToolsForDiagnostics(payload.tools),
+})
 
 const buildRequestPayload = (
   payload: ChatCompletionsPayload,
@@ -311,6 +329,7 @@ export const createChatCompletions = async (
 
     await logUpstreamError("Failed to create chat completions", response, {
       model: payload.model,
+      request: requestPayload,
       route: "/chat/completions",
     })
     throw new HTTPError("Failed to create chat completions", response)
@@ -372,7 +391,11 @@ async function createResponses(
 async function logUpstreamError(
   message: string,
   response: Response,
-  context: { model: string; route: string },
+  context: {
+    model: string
+    request?: ChatCompletionsRequestPayload
+    route: string
+  },
 ): Promise<void> {
   const errorBody = await response.clone().text().catch(() => "")
 
@@ -382,6 +405,10 @@ async function logUpstreamError(
     status: response.status,
     statusText: response.statusText,
     body: errorBody || undefined,
+    request:
+      runtimeState.debug && context.request ?
+        JSON.stringify(summarizeRequestForDiagnostics(context.request))
+      : undefined,
   })
 }
 

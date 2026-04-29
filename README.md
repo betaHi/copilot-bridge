@@ -1,7 +1,7 @@
 <h1 align="center">copilot-bridge</h1>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/betahi-copilot-bridge"><img src="https://img.shields.io/npm/v/betahi-copilot-bridge.svg?v=0.1.5" alt="npm version"></a>
+  <a href="https://www.npmjs.com/package/betahi-copilot-bridge"><img src="https://img.shields.io/npm/v/betahi-copilot-bridge.svg?v=0.1.6" alt="npm version"></a>
   <a href="https://github.com/betahi/copilot-bridge/blob/main/LICENSE"><img src="https://img.shields.io/npm/l/betahi-copilot-bridge.svg" alt="license"></a>
 </p>
 
@@ -50,8 +50,9 @@ npx betahi-copilot-bridge@latest auth
 npx betahi-copilot-bridge@latest start
 ```
 
-`start` flags: `--host`, `--port`, `--show-token`, `--no-codex-setup`,
-`--select-model`, `--no-prompt`, `--rate-limit <seconds>`, `--wait`.
+`start` flags: `--host`, `--port`, `--show-token`, `--debug`,
+`--no-codex-setup`, `--select-model`, `--no-prompt`,
+`--rate-limit <seconds>`, `--wait`.
 
 After startup the banner prints a **Usage Viewer** link of the form
 `https://betahi.github.io/copilot-bridge?endpoint=http://127.0.0.1:4142/usage`,
@@ -67,6 +68,12 @@ globally for browser-based clients.
 `--rate-limit N` enforces a minimum of N seconds between upstream
 requests (anti–abuse-detection throttle). Add `--wait` to block instead
 of returning HTTP 429 when the window has not elapsed.
+
+`--debug` enables extra upstream error diagnostics in console logs.
+- Includes: token limits, stream mode, tool count, invalid tool names, and suspicious tool-schema paths.
+- Does not include: request messages, prompt text, bearer tokens, tool descriptions, or the full request body.
+
+**Review or redact debug logs before sharing them publicly.**
 
 ## Configure Codex CLI
 
@@ -95,8 +102,8 @@ model = "gpt-5.3-codex"
 model_reasoning_effort = "high"
 ```
 
-If `model_reasoning_effort` is omitted, the bridge leaves it unset and Codex
-uses that model's default reasoning effort (a startup info log also reminds you).
+If `model_reasoning_effort` is omitted, the bridge leaves it unset and does not
+send a reasoning effort for Codex requests (a startup info log also reminds you).
 
 `model_reasoning_effort` only affects Codex requests; it does not affect Claude.
 
@@ -213,10 +220,11 @@ accepts upstream.
 ### Reasoning effort
 
 For OpenAI-compatible clients, unsupported reasoning values are clamped to the
-model capability table instead of being forwarded upstream. Claude-side
-reasoning can be set globally via `MODEL_REASONING_EFFORT` (env, or `env` in
-`~/.claude/settings.json`); invalid Claude-side values are ignored, and
-per-request `reasoning_effort` takes precedence.
+model capability table instead of being forwarded upstream. If a request omits
+reasoning effort, the bridge leaves it omitted rather than inferring a default.
+Claude-side reasoning can be set globally via `MODEL_REASONING_EFFORT` (env, or
+`env` in `~/.claude/settings.json`); invalid Claude-side values are ignored,
+and per-request `reasoning_effort` takes precedence.
 
 ## Development
 

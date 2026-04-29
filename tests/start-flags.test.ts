@@ -12,7 +12,14 @@ describe("start CLI boolean flags", () => {
 
     expect(parsed["claude-setup"]).toBe(true)
     expect(parsed["codex-setup"]).toBe(true)
+    expect(parsed.debug).toBe(false)
     expect(parsed.prompt).toBe(true)
+  })
+
+  test("supports --debug diagnostics flag", () => {
+    const parsed = parseArgs(["--debug"], startArgs)
+
+    expect(parsed.debug).toBe(true)
   })
 
   test("supports --no-* negation for setup and prompt flags", () => {

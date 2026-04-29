@@ -19,6 +19,44 @@ describe("codex /v1/responses request normalizer", () => {
     expect(out.reasoning).toBeUndefined()
   })
 
+  test("does not infer reasoning effort when omitted", () => {
+    const out = normalizeCodexResponsesRequest({
+      model: "gpt-5.4",
+      input: "hello",
+    } as never) as { reasoning?: { effort?: string } }
+
+    expect(out.reasoning).toBeUndefined()
+  })
+
+  test("preserves reasoning metadata without adding effort when effort is omitted", () => {
+    const out = normalizeCodexResponsesRequest({
+      model: "gpt-5.4",
+      reasoning: { summary: "auto" },
+    } as never) as { reasoning?: { effort?: string; summary?: string } }
+
+    expect(out.reasoning?.effort).toBeUndefined()
+    expect(out.reasoning?.summary).toBe("auto")
+  })
+
+  test("strips null reasoning effort instead of forwarding it", () => {
+    const out = normalizeCodexResponsesRequest({
+      model: "gpt-5.4",
+      reasoning: { effort: null, summary: "auto" },
+    } as never) as { reasoning?: { effort?: string; summary?: string } }
+
+    expect(out.reasoning?.effort).toBeUndefined()
+    expect(out.reasoning?.summary).toBe("auto")
+  })
+
+  test("strips invalid reasoning shapes for reasoning-capable models", () => {
+    const out = normalizeCodexResponsesRequest({
+      model: "gpt-5.4",
+      reasoning: "high",
+    } as never) as { reasoning?: unknown }
+
+    expect(out.reasoning).toBeUndefined()
+  })
+
   test("clamps unsupported effort and preserves other reasoning fields", () => {
     const out = normalizeCodexResponsesRequest({
       model: "gpt-5.4-mini",
@@ -50,6 +88,20 @@ describe("codex /v1/responses request normalizer", () => {
 
     expect(out.reasoning?.effort).toBe("medium")
     expect(out.reasoning?.summary).toBe("auto")
+    expect(out.text?.verbosity).toBe("medium")
+    expect(out.text?.format?.type).toBe("text")
+  })
+
+  test("normalizes text verbosity even when reasoning effort is omitted", () => {
+    const out = normalizeCodexResponsesRequest({
+      model: "gpt-5.2-codex",
+      text: { verbosity: "low", format: { type: "text" } },
+    } as never) as {
+      reasoning?: { effort?: string }
+      text?: { verbosity?: string; format?: { type?: string } }
+    }
+
+    expect(out.reasoning).toBeUndefined()
     expect(out.text?.verbosity).toBe("medium")
     expect(out.text?.format?.type).toBe("text")
   })

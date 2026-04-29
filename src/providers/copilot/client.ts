@@ -7,6 +7,7 @@ const COPILOT_VERSION = "0.26.7"
 const EDITOR_PLUGIN_VERSION = `copilot-chat/${COPILOT_VERSION}`
 const USER_AGENT = `GitHubCopilotChat/${COPILOT_VERSION}`
 const API_VERSION = "2025-04-01"
+const MAX_FETCH_ATTEMPTS = 2
 
 export interface CopilotProviderContext {
   baseUrl: string
@@ -27,18 +28,14 @@ export interface FetchCopilotOptions {
   initiator?: "agent" | "user"
 }
 
-export const fetchCopilot = async (
-  provider: CopilotProviderContext,
-  path: string,
-  init: RequestInit,
-  options: FetchCopilotOptions = {},
-) => {
-  if (!provider.token) {
-    throw new BridgeNotImplementedError(
-      "COPILOT_TOKEN is not configured for copilot-bridge.",
-    )
-  }
+const shouldRetryResponse = (response: Response): boolean =>
+  response.status >= 500 && response.status <= 599
 
+const buildHeaders = (
+  provider: CopilotProviderContext,
+  init: RequestInit,
+  options: FetchCopilotOptions,
+): Headers => {
   const headers = new Headers(init.headers)
 
   headers.set("authorization", `Bearer ${provider.token}`)
@@ -67,8 +64,40 @@ export const fetchCopilot = async (
     headers.set("accept", "application/json")
   }
 
-  return fetch(`${provider.baseUrl}${path}`, {
-    ...init,
-    headers,
-  })
+  return headers
+}
+
+export const fetchCopilot = async (
+  provider: CopilotProviderContext,
+  path: string,
+  init: RequestInit,
+  options: FetchCopilotOptions = {},
+) => {
+  if (!provider.token) {
+    throw new BridgeNotImplementedError(
+      "COPILOT_TOKEN is not configured for copilot-bridge.",
+    )
+  }
+
+  let lastError: unknown
+
+  for (let attempt = 1; attempt <= MAX_FETCH_ATTEMPTS; attempt++) {
+    try {
+      const response = await fetch(`${provider.baseUrl}${path}`, {
+        ...init,
+        headers: buildHeaders(provider, init, options),
+      })
+
+      if (!shouldRetryResponse(response) || attempt === MAX_FETCH_ATTEMPTS) {
+        return response
+      }
+    } catch (error) {
+      lastError = error
+      if (attempt === MAX_FETCH_ATTEMPTS) {
+        throw error
+      }
+    }
+  }
+
+  throw lastError
 }

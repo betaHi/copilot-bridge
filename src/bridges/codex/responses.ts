@@ -26,6 +26,13 @@ interface TextField {
   [key: string]: unknown
 }
 
+const removeReasoningEffort = (reasoning: ReasoningField): ReasoningField | undefined => {
+  const next = { ...reasoning }
+  delete next.effort
+
+  return Object.keys(next).length > 0 ? next : undefined
+}
+
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value)
 
@@ -48,11 +55,25 @@ export const normalizeCodexResponsesRequest = (
     return next
   }
 
-  const incoming: ReasoningField | undefined =
-    isPlainObject(next.reasoning) ? (next.reasoning as ReasoningField) : undefined
-  const clamped = clampReasoningEffort(canonical, incoming?.effort)
-  if (clamped) {
-    next.reasoning = { ...(incoming ?? {}), effort: clamped.effort }
+  if ("reasoning" in next) {
+    if (!isPlainObject(next.reasoning)) {
+      delete (next as Record<string, unknown>).reasoning
+    } else {
+      const incoming = next.reasoning as ReasoningField
+      if (incoming.effort === undefined || incoming.effort === null) {
+        const reasoning = removeReasoningEffort(incoming)
+        if (reasoning) {
+          next.reasoning = reasoning
+        } else {
+          delete (next as Record<string, unknown>).reasoning
+        }
+      } else {
+        const clamped = clampReasoningEffort(canonical, incoming.effort)
+        if (clamped) {
+          next.reasoning = { ...incoming, effort: clamped.effort }
+        }
+      }
+    }
   }
 
   const text = isPlainObject(next.text) ? (next.text as TextField) : undefined

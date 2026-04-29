@@ -1,4 +1,5 @@
 import { Hono } from "hono"
+import consola from "consola"
 
 import {
   chatResponseToResponsesJson,
@@ -12,12 +13,72 @@ import type { BridgeEnv } from "~/lib/config"
 import { BridgeNotImplementedError } from "~/lib/error"
 import { getModelCapability } from "~/lib/model-capabilities"
 import { checkRateLimit, RateLimitError } from "~/lib/rate-limit"
+import { runtimeState } from "~/lib/state"
+import {
+  summarizeToolsForDiagnostics,
+  type ToolDiagnostics,
+} from "~/lib/upstream-diagnostics"
 import {
   fetchCopilot,
   getCopilotProviderContext,
 } from "~/providers/copilot/client"
 
 export const responsesRoutes = new Hono<BridgeEnv>()
+
+type ResponsesRequestDiagnostics = {
+  has_instructions: boolean
+  input_item_count?: number
+  input_kind?: string
+  max_output_tokens?: unknown
+  reasoning_effort?: unknown
+  stream?: boolean
+  tool_choice?: unknown
+  tools?: ToolDiagnostics
+}
+
+const summarizeResponsesRequestForDiagnostics = (
+  payload: ResponsesRequestLike,
+): ResponsesRequestDiagnostics => ({
+  has_instructions: Boolean(payload.instructions),
+  input_item_count: Array.isArray(payload.input) ? payload.input.length : undefined,
+  input_kind:
+    typeof payload.input === "string" ? "string"
+    : Array.isArray(payload.input) ? "array"
+    : payload.input === undefined ? undefined
+    : typeof payload.input,
+  max_output_tokens: payload.max_output_tokens,
+  reasoning_effort: payload.reasoning?.effort,
+  stream: payload.stream ?? undefined,
+  tool_choice: payload.tool_choice,
+  tools: summarizeToolsForDiagnostics(payload.tools),
+})
+
+const logResponsesUpstreamError = async (
+  message: string,
+  response: Response,
+  context: {
+    model: string
+    request: ResponsesRequestLike
+    route: string
+  },
+): Promise<void> => {
+  if (!runtimeState.debug) {
+    return
+  }
+
+  const errorBody = await response.clone().text().catch(() => "")
+
+  consola.error(message, {
+    route: context.route,
+    model: context.model,
+    status: response.status,
+    statusText: response.statusText,
+    body: errorBody || undefined,
+    request: JSON.stringify(
+      summarizeResponsesRequestForDiagnostics(context.request),
+    ),
+  })
+}
 
 responsesRoutes.post("/", async (c) => {
   try {
@@ -48,6 +109,15 @@ responsesRoutes.post("/", async (c) => {
       })
 
       if (!upstream.ok) {
+        await logResponsesUpstreamError(
+          "Failed to create chat completions",
+          upstream,
+          {
+            model: payload.model,
+            request: payload,
+            route: "/chat/completions",
+          },
+        )
         const text = await upstream.text()
         return new Response(text, {
           status: upstream.status,
@@ -88,6 +158,14 @@ responsesRoutes.post("/", async (c) => {
     })
 
     const contentType = upstream.headers.get("content-type") ?? ""
+
+    if (!upstream.ok) {
+      await logResponsesUpstreamError("Failed to create responses", upstream, {
+        model: payload.model,
+        request: payload,
+        route: "/responses",
+      })
+    }
 
     if (payload.stream && upstream.body && contentType.includes("text/event-stream")) {
       return new Response(normalizeResponsesSseStream(upstream.body), {

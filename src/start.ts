@@ -77,6 +77,11 @@ export const start = defineCommand({
       default: false,
       description: "Print GitHub and Copilot tokens during startup.",
     },
+    debug: {
+      type: "boolean",
+      default: false,
+      description: "Enable upstream request diagnostics in console logs.",
+    },
     "codex-setup": {
       type: "boolean",
       default: true,
@@ -144,6 +149,11 @@ export const start = defineCommand({
       : DEFAULT_PORT
 
     const config = readBridgeConfig({ host, port })
+    runtimeState.debug = Boolean(args.debug)
+
+    if (runtimeState.debug) {
+      consola.info("Debug mode enabled; upstream errors include request summaries")
+    }
 
     const rateLimitRaw = args["rate-limit"]
     if (rateLimitRaw !== undefined) {
@@ -224,9 +234,20 @@ export const start = defineCommand({
       codexUserConfig.modelReasoningEffort
 
     if (chosenModel && !chosenEffort) {
-      consola.info(
-        `codex model_reasoning_effort not set; using ${chosenModel}'s default reasoning effort`,
-      )
+      const capability = getModelCapability(chosenModel)
+      if (capability && !capability.reasoning) {
+        consola.info(
+          `codex model_reasoning_effort not set; ${chosenModel} does not accept reasoning effort`,
+        )
+      } else if (capability?.reasoning) {
+        consola.info(
+          `codex model_reasoning_effort not set; leaving reasoning effort unset for ${chosenModel}`,
+        )
+      } else {
+        consola.info(
+          `codex model_reasoning_effort not set; leaving reasoning effort unset for ${chosenModel}`,
+        )
+      }
     }
 
     if (!isClaudeCodeMode && args["codex-setup"]) {

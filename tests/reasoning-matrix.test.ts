@@ -180,9 +180,39 @@ afterEach(() => {
 })
 
 describe("reasoning matrix: /v1/chat/completions", () => {
+  test("does not infer reasoning effort when omitted", async () => {
+    for (const capability of MODEL_CAPABILITIES) {
+      const captured: Array<CapturedRequest> = []
+      const { app, restore: r } = buildApp("chat-completions", captured)
+      restore = r
+
+      const res = await app.request("/v1/chat/completions", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          model: capability.id,
+          max_tokens: 32,
+          messages: [{ role: "user", content: "Reply with OK" }],
+        }),
+      })
+
+      expect(res.status).toBe(200)
+      const request = captured[0]
+      const body = request?.body as {
+        reasoning?: { effort?: ReasoningEffort }
+        output_config?: { effort?: ReasoningEffort }
+        reasoning_effort?: ReasoningEffort
+      }
+
+      expect(body.reasoning?.effort).toBeUndefined()
+      expect(body.output_config?.effort).toBeUndefined()
+      expect(body.reasoning_effort).toBeUndefined()
+    }
+  })
+
   test("forwards every model's supported reasoning efforts to the correct field", async () => {
     for (const capability of MODEL_CAPABILITIES) {
-      const efforts = capability.reasoning?.supported ?? [undefined]
+      const efforts = capability.reasoning?.supported ?? ["high" as const]
 
       for (const effort of efforts) {
         const captured: Array<CapturedRequest> = []
@@ -194,11 +224,7 @@ describe("reasoning matrix: /v1/chat/completions", () => {
           max_tokens: 32,
           messages: [{ role: "user", content: "Reply with OK" }],
         }
-        if (effort) {
-          payload.reasoning_effort = effort
-        } else {
-          payload.reasoning_effort = "high"
-        }
+        payload.reasoning_effort = effort
 
         const res = await app.request("/v1/chat/completions", {
           method: "POST",

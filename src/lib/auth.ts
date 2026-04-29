@@ -152,6 +152,9 @@ const getCopilotToken = async (
   return (await response.json()) as CopilotTokenResponse
 }
 
+const isCopilotTokenError = (error: unknown): boolean =>
+  error instanceof HTTPError && error.message === "Failed to get Copilot token"
+
 const ensureGitHubToken = async (
   config: BridgeConfig,
   options: AuthOptions = {},
@@ -193,7 +196,7 @@ export const setupBridgeAuth = async (
     return
   }
 
-  const githubToken = await ensureGitHubToken(config, options)
+  let githubToken = await ensureGitHubToken(config, options)
   const applyCopilotToken = async () => {
     const { refresh_in, token } = await getCopilotToken(
       githubToken,
@@ -208,7 +211,23 @@ export const setupBridgeAuth = async (
     return refresh_in
   }
 
-  const refreshIn = await applyCopilotToken()
+  let refreshIn: number
+  try {
+    refreshIn = await applyCopilotToken()
+  } catch (error) {
+    if (options.force || !isCopilotTokenError(error)) {
+      throw error
+    }
+
+    consola.warn(
+      "Cached GitHub auth could not get a Copilot token; running device auth again.",
+    )
+    githubToken = await ensureGitHubToken(config, {
+      ...options,
+      force: true,
+    })
+    refreshIn = await applyCopilotToken()
+  }
   const refreshInterval = Math.max(refreshIn - 60, 60) * 1000
 
   setInterval(async () => {
