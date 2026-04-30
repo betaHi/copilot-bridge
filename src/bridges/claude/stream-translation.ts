@@ -2,6 +2,10 @@ import type {
   AnthropicStreamEventData,
   AnthropicStreamState,
 } from "~/bridges/claude/anthropic-types"
+import {
+  createAnthropicToolNameMapper,
+  type AnthropicToolNameMapper,
+} from "~/bridges/claude/tool-names"
 import { mapOpenAIStopReasonToAnthropic } from "~/bridges/claude/utils"
 import type { ChatCompletionChunk } from "~/providers/copilot/chat-types"
 
@@ -18,6 +22,9 @@ function isToolBlockOpen(state: AnthropicStreamState): boolean {
 export function translateChunkToAnthropicEvents(
   chunk: ChatCompletionChunk,
   state: AnthropicStreamState,
+  toolNameMapper: AnthropicToolNameMapper = createAnthropicToolNameMapper(
+    undefined,
+  ),
 ): Array<AnthropicStreamEventData> {
   const events: Array<AnthropicStreamEventData> = []
 
@@ -97,10 +104,11 @@ export function translateChunkToAnthropicEvents(
           state.contentBlockOpen = false
         }
 
+        const toolName = toolNameMapper.toAnthropic(toolCall.function.name)
         const anthropicBlockIndex = state.contentBlockIndex
         state.toolCalls[toolCall.index] = {
           id: toolCall.id,
-          name: toolCall.function.name,
+          name: toolName,
           anthropicBlockIndex,
         }
 
@@ -110,7 +118,7 @@ export function translateChunkToAnthropicEvents(
           content_block: {
             type: "tool_use",
             id: toolCall.id,
-            name: toolCall.function.name,
+            name: toolName,
             input: {},
           },
         })

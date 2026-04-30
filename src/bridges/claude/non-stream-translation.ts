@@ -26,6 +26,11 @@ import {
   type AnthropicUserMessage,
 } from "~/bridges/claude/anthropic-types"
 import { mapOpenAIStopReasonToAnthropic } from "~/bridges/claude/utils"
+import {
+  createAnthropicToolNameMapper,
+  getToolNameMapperOptionsForModel,
+  type AnthropicToolNameMapper,
+} from "~/bridges/claude/tool-names"
 
 const normalizeClaudeModelAlias = (model: string): string => {
   const trimmed = model.trim().toLowerCase()
@@ -111,7 +116,7 @@ const resolveClaudeRequestedModel = (
   return getConfiguredClaudeDefaultModel(settings) ?? model
 }
 
-function translateModelName(
+export function translateModelName(
   model: string,
   settings?: Pick<ClaudeSettings, "env" | "model">,
 ): string {
@@ -294,13 +299,21 @@ function translateReasoningEffort(
 export function translateToOpenAI(
   payload: AnthropicMessagesPayload,
   settings?: Pick<ClaudeSettings, "env" | "model">,
+  toolNameMapper?: AnthropicToolNameMapper,
 ): ChatCompletionsPayload {
   const model = translateModelName(payload.model, settings)
-  const tools = translateAnthropicToolsToOpenAI(payload.tools)
+  const mapper = toolNameMapper ?? createAnthropicToolNameMapper(payload.tools, {
+    ...getToolNameMapperOptionsForModel(model),
+  })
+  const tools = translateAnthropicToolsToOpenAI(payload.tools, mapper)
 
   return {
     model,
-    messages: translateAnthropicMessagesToOpenAI(payload.messages, payload.system),
+    messages: translateAnthropicMessagesToOpenAI(
+      payload.messages,
+      payload.system,
+      mapper,
+    ),
     max_tokens: payload.max_tokens,
     stop: payload.stop_sequences,
     stream: payload.stream,
@@ -313,7 +326,7 @@ export function translateToOpenAI(
     tools,
     tool_choice:
       tools && tools.length > 0 ?
-        translateAnthropicToolChoiceToOpenAI(payload.tool_choice)
+        translateAnthropicToolChoiceToOpenAI(payload.tool_choice, mapper)
       : undefined,
   }
 }
@@ -321,10 +334,11 @@ export function translateToOpenAI(
 function translateAnthropicMessagesToOpenAI(
   anthropicMessages: Array<AnthropicMessage>,
   system: string | Array<AnthropicTextBlock> | undefined,
+  toolNameMapper: AnthropicToolNameMapper,
 ): Array<Message> {
   const systemMessages = handleSystemPrompt(system)
   const otherMessages = anthropicMessages.flatMap((message) =>
-    message.role === "user" ? handleUserMessage(message) : handleAssistantMessage(message),
+    message.role === "user" ? handleUserMessage(message) : handleAssistantMessage(message, toolNameMapper),
   )
   return [...systemMessages, ...otherMessages]
 }
@@ -376,7 +390,10 @@ function handleUserMessage(message: AnthropicUserMessage): Array<Message> {
   return newMessages
 }
 
-function handleAssistantMessage(message: AnthropicAssistantMessage): Array<Message> {
+function handleAssistantMessage(
+  message: AnthropicAssistantMessage,
+  toolNameMapper: AnthropicToolNameMapper,
+): Array<Message> {
   if (!Array.isArray(message.content)) {
     return [{ role: "assistant", content: mapContent(message.content) }]
   }
@@ -405,7 +422,7 @@ function handleAssistantMessage(message: AnthropicAssistantMessage): Array<Messa
             id: toolUse.id,
             type: "function",
             function: {
-              name: toolUse.name,
+              name: toolNameMapper.toOpenAI(toolUse.name),
               arguments: JSON.stringify(toolUse.input),
             },
           })),
@@ -466,6 +483,7 @@ function mapContent(
 
 function translateAnthropicToolsToOpenAI(
   anthropicTools: Array<AnthropicTool> | undefined,
+  toolNameMapper: AnthropicToolNameMapper,
 ): Array<Tool> | undefined {
   if (!anthropicTools || anthropicTools.length === 0) {
     return undefined
@@ -474,7 +492,7 @@ function translateAnthropicToolsToOpenAI(
   return anthropicTools.map((tool) => ({
     type: "function",
     function: {
-      name: tool.name,
+      name: toolNameMapper.toOpenAI(tool.name),
       description: tool.description,
       parameters: tool.input_schema,
     },
@@ -483,6 +501,7 @@ function translateAnthropicToolsToOpenAI(
 
 function translateAnthropicToolChoiceToOpenAI(
   anthropicToolChoice: AnthropicMessagesPayload["tool_choice"],
+  toolNameMapper: AnthropicToolNameMapper,
 ): ChatCompletionsPayload["tool_choice"] {
   if (!anthropicToolChoice) {
     return undefined
@@ -499,7 +518,7 @@ function translateAnthropicToolChoiceToOpenAI(
       if (anthropicToolChoice.name) {
         return {
           type: "function",
-          function: { name: anthropicToolChoice.name },
+          function: { name: toolNameMapper.toOpenAI(anthropicToolChoice.name) },
         }
       }
       return undefined
@@ -515,6 +534,9 @@ function translateAnthropicToolChoiceToOpenAI(
 
 export function translateToAnthropic(
   response: ChatCompletionResponse,
+  toolNameMapper: AnthropicToolNameMapper = createAnthropicToolNameMapper(
+    undefined,
+  ),
 ): AnthropicResponse {
   const allTextBlocks: Array<AnthropicTextBlock> = []
   const allToolUseBlocks: Array<AnthropicToolUseBlock> = []
@@ -524,7 +546,9 @@ export function translateToAnthropic(
 
   for (const choice of response.choices) {
     allTextBlocks.push(...getAnthropicTextBlocks(choice.message.content))
-    allToolUseBlocks.push(...getAnthropicToolUseBlocks(choice.message.tool_calls))
+    allToolUseBlocks.push(
+      ...getAnthropicToolUseBlocks(choice.message.tool_calls, toolNameMapper),
+    )
 
     if (choice.finish_reason === "tool_calls" || stopReason === "stop") {
       stopReason = choice.finish_reason
@@ -569,6 +593,7 @@ function getAnthropicTextBlocks(
 
 function getAnthropicToolUseBlocks(
   toolCalls: Array<ToolCall> | undefined,
+  toolNameMapper: AnthropicToolNameMapper,
 ): Array<AnthropicToolUseBlock> {
   if (!toolCalls) {
     return []
@@ -577,7 +602,7 @@ function getAnthropicToolUseBlocks(
   return toolCalls.map((toolCall) => ({
     type: "tool_use",
     id: toolCall.id,
-    name: toolCall.function.name,
+    name: toolNameMapper.toAnthropic(toolCall.function.name),
     input: safeJsonParse(toolCall.function.arguments),
   }))
 }

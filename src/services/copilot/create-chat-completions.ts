@@ -37,6 +37,10 @@ type ClaudeOpus47Effort = NonNullable<
 
 type ClientKind = "claude" | "codex" | "generic"
 
+interface CreateChatCompletionsOptions {
+  client?: ClientKind
+}
+
 const MAX_USER_LENGTH = 64
 
 export const sanitizeReasoningEffortForModel = (
@@ -288,7 +292,7 @@ const messagesIncludeImage = (
 export const createChatCompletions = async (
   config: BridgeConfig,
   payload: ChatCompletionsPayload,
-  options?: { client?: ClientKind },
+  options?: CreateChatCompletionsOptions,
 ) => {
   const provider = getCopilotProviderContext(config)
   const enableVision = messagesIncludeImage(payload.messages)

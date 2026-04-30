@@ -9,11 +9,16 @@ import {
 import {
   translateToAnthropic,
   translateToOpenAI,
+  translateModelName,
 } from "~/bridges/claude/non-stream-translation"
 import {
   translateChunkToAnthropicEvents,
   translateErrorToAnthropicErrorEvent,
 } from "~/bridges/claude/stream-translation"
+import {
+  createAnthropicToolNameMapper,
+  getToolNameMapperOptionsForModel,
+} from "~/bridges/claude/tool-names"
 import { getClaudeSettings } from "~/lib/claude-settings"
 import type { BridgeEnv } from "~/lib/config"
 import { BridgeNotImplementedError, HTTPError } from "~/lib/error"
@@ -47,7 +52,15 @@ messageRoutes.post("/", async (c) => {
   }
   const anthropicPayload = await c.req.json<AnthropicMessagesPayload>()
   const claudeSettings = await getClaudeSettings()
-  const openAIPayload = translateToOpenAI(anthropicPayload, claudeSettings)
+  const upstreamModel = translateModelName(anthropicPayload.model, claudeSettings)
+  const toolNameMapper = createAnthropicToolNameMapper(anthropicPayload.tools, {
+    ...getToolNameMapperOptionsForModel(upstreamModel),
+  })
+  const openAIPayload = translateToOpenAI(
+    anthropicPayload,
+    claudeSettings,
+    toolNameMapper,
+  )
 
   try {
     const response = await createChatCompletions(config, openAIPayload, {
@@ -55,7 +68,7 @@ messageRoutes.post("/", async (c) => {
     })
 
     if (isNonStreamingResponse(response)) {
-      return c.json(translateToAnthropic(response))
+      return c.json(translateToAnthropic(response, toolNameMapper))
     }
 
     return streamSSE(c, async (stream) => {
@@ -83,7 +96,11 @@ messageRoutes.post("/", async (c) => {
             continue
           }
 
-          const events = translateChunkToAnthropicEvents(chunk, streamState)
+          const events = translateChunkToAnthropicEvents(
+            chunk,
+            streamState,
+            toolNameMapper,
+          )
           for (const event of events) {
             await stream.writeSSE({
               event: event.type,

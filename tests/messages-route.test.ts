@@ -92,7 +92,10 @@ interface CapturedRequest {
   body: unknown
 }
 
-const buildApp = (captured: Array<CapturedRequest>, response: Response) => {
+const buildApp = (
+  captured: Array<CapturedRequest>,
+  response: Response | ((request: CapturedRequest) => Response),
+) => {
   const config: BridgeConfig = {
     host: "127.0.0.1",
     port: 0,
@@ -120,8 +123,11 @@ const buildApp = (captured: Array<CapturedRequest>, response: Response) => {
         parsedBody = init.body
       }
     }
-    captured.push({ url, method: init?.method ?? "GET", body: parsedBody })
-    return response.clone()
+    const request = { url, method: init?.method ?? "GET", body: parsedBody }
+    captured.push(request)
+    const upstreamResponse =
+      typeof response === "function" ? response(request) : response
+    return upstreamResponse.clone()
   }) as typeof fetch
 
   return {
@@ -158,6 +164,422 @@ afterEach(() => {
 })
 
 describe("/v1/messages route", () => {
+  test("shortens long MCP tool names upstream and restores them in tool_use", async () => {
+    const originalToolName =
+      "mcp__plugin_microsoft-docs_microsoft-learn__microsoft_code_sample_search"
+    const captured: Array<CapturedRequest> = []
+    const upstream = (request: CapturedRequest) => {
+      const body = request.body as {
+        tools?: Array<{ function: { name: string } }>
+      }
+      const upstreamToolName = body.tools?.[0]?.function.name ?? "missing"
+      return new Response(
+        JSON.stringify({
+          id: "chatcmpl-tool",
+          created: 1700000000,
+          model: "claude-sonnet-4.6",
+          choices: [
+            {
+              index: 0,
+              message: {
+                role: "assistant",
+                content: null,
+                tool_calls: [
+                  {
+                    id: "call_1",
+                    type: "function",
+                    function: { name: upstreamToolName, arguments: "{}" },
+                  },
+                ],
+              },
+              finish_reason: "tool_calls",
+            },
+          ],
+          usage: { prompt_tokens: 9, completion_tokens: 2, total_tokens: 11 },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      )
+    }
+
+    const { app, restore: r } = buildApp(captured, upstream)
+    restore = r
+
+    const res = await app.request("/v1/messages", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-sonnet-4.6",
+        max_tokens: 1024,
+        messages: [{ role: "user", content: "search docs" }],
+        tools: [
+          {
+            name: originalToolName,
+            description: "Search Microsoft Learn code samples",
+            input_schema: { type: "object", properties: {} },
+          },
+        ],
+        tool_choice: { type: "tool", name: originalToolName },
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    const upstreamBody = captured[0].body as {
+      tool_choice?: { function?: { name?: string } }
+      tools?: Array<{ function: { name: string } }>
+    }
+    const upstreamToolName = upstreamBody.tools?.[0]?.function.name
+
+    expect(typeof upstreamToolName).toBe("string")
+    expect(upstreamToolName).not.toBe(originalToolName)
+    expect(upstreamToolName?.length).toBeLessThanOrEqual(64)
+    expect(upstreamBody.tool_choice?.function?.name).toBe(upstreamToolName)
+
+    const json = (await res.json()) as {
+      content: Array<{
+        id?: string
+        input?: Record<string, unknown>
+        name?: string
+        type: string
+      }>
+      stop_reason: string | null
+    }
+    expect(json.stop_reason).toBe("tool_use")
+    expect(json.content).toContainEqual({
+      type: "tool_use",
+      id: "call_1",
+      name: originalToolName,
+      input: {},
+    })
+  })
+
+  test("keeps long MCP tool names for Claude models with 128-char upstream support", async () => {
+    const originalToolName =
+      "mcp__plugin_microsoft-docs_microsoft-learn__microsoft_code_sample_search"
+    const captured: Array<CapturedRequest> = []
+    const upstream = (request: CapturedRequest) => {
+      const body = request.body as {
+        tools?: Array<{ function: { name: string } }>
+      }
+      const upstreamToolName = body.tools?.[0]?.function.name ?? "missing"
+      return new Response(
+        JSON.stringify({
+          id: "chatcmpl-tool-opus",
+          created: 1700000000,
+          model: "claude-opus-4.7",
+          choices: [
+            {
+              index: 0,
+              message: {
+                role: "assistant",
+                content: null,
+                tool_calls: [
+                  {
+                    id: "call_1",
+                    type: "function",
+                    function: { name: upstreamToolName, arguments: "{}" },
+                  },
+                ],
+              },
+              finish_reason: "tool_calls",
+            },
+          ],
+          usage: { prompt_tokens: 9, completion_tokens: 2, total_tokens: 11 },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      )
+    }
+
+    const { app, restore: r } = buildApp(captured, upstream)
+    restore = r
+
+    const res = await app.request("/v1/messages", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-opus-4.7",
+        max_tokens: 1024,
+        messages: [{ role: "user", content: "search docs" }],
+        tools: [
+          {
+            name: originalToolName,
+            description: "Search Microsoft Learn code samples",
+            input_schema: { type: "object", properties: {} },
+          },
+        ],
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    const upstreamBody = captured[0].body as {
+      tools?: Array<{ function: { name: string } }>
+    }
+    expect(upstreamBody.tools?.[0]?.function.name).toBe(originalToolName)
+
+    const json = (await res.json()) as {
+      content: Array<{
+        id?: string
+        input?: Record<string, unknown>
+        name?: string
+        type: string
+      }>
+    }
+    expect(json.content).toContainEqual({
+      type: "tool_use",
+      id: "call_1",
+      name: originalToolName,
+      input: {},
+    })
+  })
+
+  test("preserves dotted tool names for models that accept them", async () => {
+    const originalToolName = "mcp.server.tool"
+    const captured: Array<CapturedRequest> = []
+    const upstream = (request: CapturedRequest) => {
+      const body = request.body as {
+        tools?: Array<{ function: { name: string } }>
+      }
+      const upstreamToolName = body.tools?.[0]?.function.name ?? "missing"
+      return new Response(
+        JSON.stringify({
+          id: "chatcmpl-dotted-gemini",
+          created: 1700000000,
+          model: "gemini-2.5-pro",
+          choices: [
+            {
+              index: 0,
+              message: {
+                role: "assistant",
+                content: null,
+                tool_calls: [
+                  {
+                    id: "call_1",
+                    type: "function",
+                    function: { name: upstreamToolName, arguments: "{}" },
+                  },
+                ],
+              },
+              finish_reason: "tool_calls",
+            },
+          ],
+          usage: { prompt_tokens: 9, completion_tokens: 2, total_tokens: 11 },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      )
+    }
+
+    const { app, restore: r } = buildApp(captured, upstream)
+    restore = r
+
+    const res = await app.request("/v1/messages", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "gemini-2.5-pro",
+        max_tokens: 1024,
+        messages: [{ role: "user", content: "use dotted tool" }],
+        tools: [
+          {
+            name: originalToolName,
+            description: "Dotted MCP-style tool",
+            input_schema: { type: "object", properties: {} },
+          },
+        ],
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    const upstreamBody = captured[0].body as {
+      tools?: Array<{ function: { name: string } }>
+    }
+    expect(upstreamBody.tools?.[0]?.function.name).toBe(originalToolName)
+
+    const json = (await res.json()) as {
+      content: Array<{
+        id?: string
+        input?: Record<string, unknown>
+        name?: string
+        type: string
+      }>
+    }
+    expect(json.content).toContainEqual({
+      type: "tool_use",
+      id: "call_1",
+      name: originalToolName,
+      input: {},
+    })
+  })
+
+  test("maps dotted tool names for strict models and restores them", async () => {
+    const originalToolName = "mcp.server.tool"
+    const captured: Array<CapturedRequest> = []
+    const upstream = (request: CapturedRequest) => {
+      const body = request.body as {
+        tools?: Array<{ function: { name: string } }>
+      }
+      const upstreamToolName = body.tools?.[0]?.function.name ?? "missing"
+      return new Response(
+        JSON.stringify({
+          id: "chatcmpl-dotted-strict",
+          created: 1700000000,
+          model: "gpt-5.2",
+          choices: [
+            {
+              index: 0,
+              message: {
+                role: "assistant",
+                content: null,
+                tool_calls: [
+                  {
+                    id: "call_1",
+                    type: "function",
+                    function: { name: upstreamToolName, arguments: "{}" },
+                  },
+                ],
+              },
+              finish_reason: "tool_calls",
+            },
+          ],
+          usage: { prompt_tokens: 9, completion_tokens: 2, total_tokens: 11 },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      )
+    }
+
+    const { app, restore: r } = buildApp(captured, upstream)
+    restore = r
+
+    const res = await app.request("/v1/messages", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "gpt-5.2",
+        max_tokens: 1024,
+        messages: [{ role: "user", content: "use strict tool" }],
+        tools: [
+          {
+            name: originalToolName,
+            description: "Dotted MCP-style tool",
+            input_schema: { type: "object", properties: {} },
+          },
+        ],
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    const upstreamBody = captured[0].body as {
+      tools?: Array<{ function: { name: string } }>
+    }
+    expect(upstreamBody.tools?.[0]?.function.name).toBe("mcp_server_tool")
+
+    const json = (await res.json()) as {
+      content: Array<{
+        id?: string
+        input?: Record<string, unknown>
+        name?: string
+        type: string
+      }>
+    }
+    expect(json.content).toContainEqual({
+      type: "tool_use",
+      id: "call_1",
+      name: originalToolName,
+      input: {},
+    })
+  })
+
+  test("keeps colliding sanitized tool names distinct and restores each original", async () => {
+    const dottedToolName = "mcp.server.tool"
+    const underscoredToolName = "mcp_server_tool"
+    const captured: Array<CapturedRequest> = []
+    const upstream = (request: CapturedRequest) => {
+      const body = request.body as {
+        tools?: Array<{ function: { name: string } }>
+      }
+      const toolCalls = body.tools?.map((tool, index) => ({
+        id: `call_${index + 1}`,
+        type: "function" as const,
+        function: { name: tool.function.name, arguments: "{}" },
+      })) ?? []
+
+      return new Response(
+        JSON.stringify({
+          id: "chatcmpl-collision",
+          created: 1700000000,
+          model: "gpt-5.2",
+          choices: [
+            {
+              index: 0,
+              message: {
+                role: "assistant",
+                content: null,
+                tool_calls: toolCalls,
+              },
+              finish_reason: "tool_calls",
+            },
+          ],
+          usage: { prompt_tokens: 9, completion_tokens: 2, total_tokens: 11 },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      )
+    }
+
+    const { app, restore: r } = buildApp(captured, upstream)
+    restore = r
+
+    const res = await app.request("/v1/messages", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "gpt-5.2",
+        max_tokens: 1024,
+        messages: [{ role: "user", content: "use tools" }],
+        tools: [
+          {
+            name: dottedToolName,
+            description: "Dotted MCP-style tool",
+            input_schema: { type: "object", properties: {} },
+          },
+          {
+            name: underscoredToolName,
+            description: "Underscored MCP-style tool",
+            input_schema: { type: "object", properties: {} },
+          },
+        ],
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    const upstreamBody = captured[0].body as {
+      tools?: Array<{ function: { name: string } }>
+    }
+    const upstreamNames = upstreamBody.tools?.map((tool) => tool.function.name)
+    expect(upstreamNames).toHaveLength(2)
+    expect(new Set(upstreamNames).size).toBe(2)
+    expect(upstreamNames).toContain("mcp_server_tool")
+    expect(upstreamNames?.some((name) => name !== "mcp_server_tool")).toBe(true)
+
+    const json = (await res.json()) as {
+      content: Array<{
+        id?: string
+        input?: Record<string, unknown>
+        name?: string
+        type: string
+      }>
+    }
+    expect(json.content).toContainEqual({
+      type: "tool_use",
+      id: "call_1",
+      name: dottedToolName,
+      input: {},
+    })
+    expect(json.content).toContainEqual({
+      type: "tool_use",
+      id: "call_2",
+      name: underscoredToolName,
+      input: {},
+    })
+  })
+
   test("non-stream translation returns Anthropic format", async () => {
     const captured: Array<CapturedRequest> = []
     const upstream = new Response(
@@ -1041,6 +1463,64 @@ describe("/v1/messages route", () => {
     expect(text).toContain("event: content_block_delta")
     expect(text).toContain("event: message_stop")
     expect(text).toContain('"text":"OK"')
+  })
+
+  test("stream mode restores shortened MCP tool names in Anthropic SSE events", async () => {
+    const originalToolName =
+      "mcp__plugin_microsoft-docs_microsoft-learn__microsoft_docs_search"
+    const captured: Array<CapturedRequest> = []
+    const upstream = (request: CapturedRequest) => {
+      const body = request.body as {
+        tools?: Array<{ function: { name: string } }>
+      }
+      const upstreamToolName = body.tools?.[0]?.function.name ?? "missing"
+      const sseBody = [
+        `data: {"id":"cmpl-tool","object":"chat.completion.chunk","created":1700000001,"model":"claude-haiku-4.5","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"${upstreamToolName}","arguments":""}}]},"finish_reason":null,"logprobs":null}],"usage":{"prompt_tokens":10,"completion_tokens":0,"total_tokens":10}}\n\n`,
+        'data: {"id":"cmpl-tool","object":"chat.completion.chunk","created":1700000001,"model":"claude-haiku-4.5","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{}"}}]},"finish_reason":null,"logprobs":null}],"usage":{"prompt_tokens":10,"completion_tokens":1,"total_tokens":11}}\n\n',
+        'data: {"id":"cmpl-tool","object":"chat.completion.chunk","created":1700000001,"model":"claude-haiku-4.5","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls","logprobs":null}],"usage":{"prompt_tokens":10,"completion_tokens":1,"total_tokens":11}}\n\n',
+        "data: [DONE]\n\n",
+      ].join("")
+
+      return new Response(sseBody, {
+        status: 200,
+        headers: { "content-type": "text/event-stream; charset=utf-8" },
+      })
+    }
+
+    const { app, restore: r } = buildApp(captured, upstream)
+    restore = r
+
+    const res = await app.request("/v1/messages", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-haiku-4.5",
+        stream: true,
+        max_tokens: 1024,
+        messages: [{ role: "user", content: "search docs" }],
+        tools: [
+          {
+            name: originalToolName,
+            description: "Search Microsoft Learn docs",
+            input_schema: { type: "object", properties: {} },
+          },
+        ],
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    const upstreamBody = captured[0].body as {
+      tools?: Array<{ function: { name: string } }>
+    }
+    const upstreamToolName = upstreamBody.tools?.[0]?.function.name
+    expect(upstreamToolName).not.toBe(originalToolName)
+    expect(upstreamToolName?.length).toBeLessThanOrEqual(64)
+
+    const text = await res.text()
+    expect(text).toContain('"type":"tool_use"')
+    expect(text).toContain(`"name":"${originalToolName}"`)
+    expect(text).not.toContain(`"name":"${upstreamToolName}"`)
+    expect(text).toContain("event: message_stop")
   })
 
   test("count_tokens returns positive token estimate", async () => {
