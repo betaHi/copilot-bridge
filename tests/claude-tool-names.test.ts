@@ -60,6 +60,10 @@ describe("Claude tool name mapping", () => {
       allowDots: false,
       maxNameLength: 128,
     })
+    expect(getToolNameMapperOptionsForModel("gpt-5-mini")).toEqual({
+      allowDots: false,
+      maxNameLength: 128,
+    })
     expect(getToolNameMapperOptionsForModel("gpt-4o")).toEqual({
       allowDots: true,
       maxNameLength: 128,
@@ -85,7 +89,7 @@ describe("Claude tool name mapping", () => {
     )
     const strictMapper = createAnthropicToolNameMapper(
       [{ name: dottedName, input_schema: { type: "object" } }],
-      getToolNameMapperOptionsForModel("gpt-5.2"),
+      getToolNameMapperOptionsForModel("gpt-5-mini"),
     )
 
     expect(dottedMapper.toOpenAI(dottedName)).toBe(dottedName)

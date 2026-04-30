@@ -43,6 +43,7 @@ export const getToolNameMapperOptionsForModel = (
     /^gpt-5-(?:2|4)(?:$|-)/.test(normalized)
     || /^gpt-5-(?:2|3)-codex(?:$|-)/.test(normalized)
     || /^gpt-5-4-mini(?:$|-)/.test(normalized)
+    || /^gpt-5-mini(?:$|-)/.test(normalized)
     || /^gpt-5-5(?:$|-)/.test(normalized)
   ) {
     return { allowDots: false, maxNameLength: EXTENDED_TOOL_NAME_MAX_LENGTH }
