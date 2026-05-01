@@ -1,7 +1,7 @@
 <h1 align="center">copilot-bridge</h1>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/betahi-copilot-bridge"><img src="https://img.shields.io/npm/v/betahi-copilot-bridge.svg?v=0.20.0" alt="npm version"></a>
+  <a href="https://www.npmjs.com/package/betahi-copilot-bridge"><img src="https://img.shields.io/npm/v/betahi-copilot-bridge.svg?v=0.20.2" alt="npm version"></a>
   <a href="https://github.com/betahi/copilot-bridge/blob/main/LICENSE"><img src="https://img.shields.io/npm/l/betahi-copilot-bridge.svg" alt="license"></a>
 </p>
 
@@ -113,7 +113,7 @@ manage `~/.codex/config.toml` yourself).
 This is a Codex client-side metadata warning, not a bridge routing failure.
 Requests can still complete through the bridge.
 
-For `claude-opus-4.6-1m`, upstream still enforces a 1,000,000-token prompt
+For 1m model, upstream still enforces a 1,000,000-token prompt
 limit (about 900k succeeds; around 1,000,046 is rejected as too long).
 
 ## Configure Claude Code
