@@ -86,21 +86,16 @@ Use `--no-codex-setup` to skip this writer if you manage
 
 ### Codex warning: "Model metadata ... not found"
 
-This is a Codex client-side metadata warning, not a bridge routing failure.
-Requests can still complete through the bridge.
+This is a Codex client-side metadata warning, not a bridge routing failure, requests can still complete through the bridge.
 
 For 1M models, upstream still enforces a 1,000,000-token prompt
 limit (about 900k succeeds; around 1,000,046 is rejected as too long).
 
 ## Configure Claude Code
 
-Bridge endpoints: `POST /v1/messages`, `POST /v1/messages/count_tokens`.
-
-`copilot-bridge start` automatically writes `ANTHROPIC_BASE_URL` (and a dummy
-`ANTHROPIC_AUTH_TOKEN` if absent) into **`~/.claude/settings.json`**, so
-`claude` works the moment the bridge is listening — even on a different host
-or port. Pass `--no-claude-setup` to skip this. All other keys in your
-settings file (model overrides, plugins, marketplaces) are preserved.
+`copilot-bridge start` writes `ANTHROPIC_BASE_URL` and a dummy
+`ANTHROPIC_AUTH_TOKEN` into **`~/.claude/settings.json`**. Other settings are
+preserved; use `--no-claude-setup` to skip this writer.
 
 Minimal recommended config is:
 
@@ -127,7 +122,7 @@ the bridge maps it to the real Copilot `-1m` model upstream:
 }
 ```
 
-Optional slot-specific:
+Slot-specific overrides:
 
 ```json
 {
