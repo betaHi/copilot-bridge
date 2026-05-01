@@ -244,6 +244,11 @@ Adding another CLI: drop a new translator under `src/bridges/<client>/`,
 reuse `src/services/copilot/` for upstream calls, register routes in
 `src/server.ts`, and add tests under `tests/`.
 
+## Acknowledgements
+
+Claude Code bridge notes inspired by
+[ericc-ch/copilot-api](https://github.com/ericc-ch/copilot-api). Respect.
+
 ## License
 
 MIT — see [LICENSE](./LICENSE).
