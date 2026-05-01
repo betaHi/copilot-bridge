@@ -36,7 +36,23 @@ const normalizeClaudeModelAlias = (model: string): string => {
   const trimmed = model.trim().toLowerCase()
 
   if (trimmed === "opus[1m]") {
-    return "claude-opus-4.6-1m"
+    return "claude-opus-4.7-1m"
+  }
+
+  const claudeOpusOneMillionMatch = trimmed.match(
+    /^claude-opus-(\d)[.-](\d)(?:-\d{8})?-?\[1m\]$/,
+  )
+  if (claudeOpusOneMillionMatch) {
+    const [, major, minor] = claudeOpusOneMillionMatch
+    return `claude-opus-${major}.${minor}-1m`
+  }
+
+  const claudeOpusOneMillionStrippedByClaudeCodeMatch = trimmed.match(
+    /^claude-opus-(\d)[.-](\d)-$/,
+  )
+  if (claudeOpusOneMillionStrippedByClaudeCodeMatch) {
+    const [, major, minor] = claudeOpusOneMillionStrippedByClaudeCodeMatch
+    return `claude-opus-${major}.${minor}-1m`
   }
 
   const normalized = trimmed.replace(/\[1m\]$/, "")

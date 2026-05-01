@@ -142,6 +142,14 @@ interface CapturedRequest {
   body: unknown
 }
 
+const getFixtureModelId = (name: string): string => {
+  const model = runtimeState.models?.data.find((candidate) => candidate.name === name)
+  if (!model) {
+    throw new Error(`Missing test model fixture: ${name}`)
+  }
+  return model.id
+}
+
 const buildApp = (
   captured: Array<CapturedRequest>,
   response: Response | ((request: CapturedRequest) => Response),
@@ -732,13 +740,15 @@ describe("/v1/messages route", () => {
   })
 
   test("supports Claude opus 4.7 variant ids from Claude CLI", async () => {
+    const opus47OneMillionModel = getFixtureModelId("Claude Opus 4.7 1M")
+
     for (const [requestedModel, requestedEffort, expectedModel, expectedEffort] of [
       ["claude-opus-4.7", "high", "claude-opus-4.7-high", "high"],
       ["claude-opus-4.7", "xhigh", "claude-opus-4.7-xhigh", "xhigh"],
       ["claude-opus-4.7", "max", "claude-opus-4.7-xhigh", "xhigh"],
       ["claude-opus-4.7-high", "xhigh", "claude-opus-4.7-high", "high"],
       ["claude-opus-4.7-xhigh", "max", "claude-opus-4.7-xhigh", "xhigh"],
-      ["claude-opus-4.7-1m", "max", "claude-opus-4.7-1m-internal", "xhigh"],
+      ["claude-opus-4.7-1m", "max", opus47OneMillionModel, "xhigh"],
       ["opus-4.7-high", "high", "claude-opus-4.7-high", "high"],
       ["claude-opus-4-7-high", "low", "claude-opus-4.7-high", "high"],
     ] as const) {
@@ -860,6 +870,8 @@ describe("/v1/messages route", () => {
   })
 
   test("routes Claude settings opus 4.7 1M reasoning effort to the 1M upstream model", async () => {
+    const opus47OneMillionModel = getFixtureModelId("Claude Opus 4.7 1M")
+
     for (const [configuredEffort, expectedEffort] of [
       ["low", "low"],
       ["medium", "medium"],
@@ -890,7 +902,7 @@ describe("/v1/messages route", () => {
           JSON.stringify({
             id: `chatcmpl-settings-1m-${configuredEffort}`,
             created: 1700000000,
-            model: "claude-opus-4.7-1m-internal",
+            model: opus47OneMillionModel,
             choices: [
               {
                 index: 0,
@@ -919,7 +931,7 @@ describe("/v1/messages route", () => {
         expect(res.status).toBe(200)
         expect(
           (captured[0].body as { model: string; output_config?: { effort?: string } }).model,
-        ).toBe("claude-opus-4.7-1m-internal")
+        ).toBe(opus47OneMillionModel)
         expect(
           (captured[0].body as { output_config?: { effort?: string } })
             .output_config,
@@ -931,6 +943,7 @@ describe("/v1/messages route", () => {
   })
 
   test("lets Claude settings override Claude CLI thinking-derived opus 4.7 effort", async () => {
+    const opus47OneMillionModel = getFixtureModelId("Claude Opus 4.7 1M")
     const tempHome = await mkdtemp(path.join(os.tmpdir(), "claude-settings-opus47-thinking-"))
     process.env.HOME = tempHome
     await mkdir(path.join(tempHome, ".claude"), { recursive: true })
@@ -954,7 +967,7 @@ describe("/v1/messages route", () => {
         JSON.stringify({
           id: "chatcmpl-settings-thinking",
           created: 1700000000,
-          model: "claude-opus-4.7-1m-internal",
+          model: opus47OneMillionModel,
           choices: [
             {
               index: 0,
@@ -984,7 +997,7 @@ describe("/v1/messages route", () => {
       expect(res.status).toBe(200)
       expect(
         (captured[0].body as { model: string; output_config?: { effort?: string } }).model,
-      ).toBe("claude-opus-4.7-1m-internal")
+      ).toBe(opus47OneMillionModel)
       expect(
         (captured[0].body as { output_config?: { effort?: string } })
           .output_config,
@@ -1031,12 +1044,13 @@ describe("/v1/messages route", () => {
   })
 
   test("maps Claude client opus[1m] alias to the 1m upstream opus model", async () => {
+    const opus47OneMillionModel = getFixtureModelId("Claude Opus 4.7 1M")
     const captured: Array<CapturedRequest> = []
     const upstream = new Response(
       JSON.stringify({
         id: "chatcmpl-2c",
         created: 1700000000,
-        model: "claude-opus-4.6-1m",
+        model: opus47OneMillionModel,
         choices: [
           {
             index: 0,
@@ -1064,8 +1078,98 @@ describe("/v1/messages route", () => {
 
     expect(res.status).toBe(200)
     expect((captured[0].body as { model: string }).model).toBe(
-      "claude-opus-4.6-1m",
+      opus47OneMillionModel,
     )
+  })
+
+  test("preserves bracket-form Claude opus 1m version aliases", async () => {
+    const opus47OneMillionModel = getFixtureModelId("Claude Opus 4.7 1M")
+    const captured: Array<CapturedRequest> = []
+    const upstream = new Response(
+      JSON.stringify({
+        id: "chatcmpl-2c-bracket",
+        created: 1700000000,
+        model: opus47OneMillionModel,
+        choices: [
+          {
+            index: 0,
+            message: { role: "assistant", content: "OK" },
+            finish_reason: "stop",
+          },
+        ],
+        usage: { prompt_tokens: 9, completion_tokens: 2, total_tokens: 11 },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    )
+
+    const { app, restore: r } = buildApp(captured, upstream)
+    restore = r
+
+    for (const model of [
+      "claude-opus-4.7[1m]",
+      "claude-opus-4.7-[1m]",
+      "claude-opus-4.7-",
+    ]) {
+      const res = await app.request("/v1/messages", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          model,
+          max_tokens: 1024,
+          messages: [{ role: "user", content: "Reply with OK" }],
+        }),
+      })
+
+      expect(res.status).toBe(200)
+    }
+
+    expect(captured.map((request) => (request.body as { model: string }).model)).toEqual([
+      opus47OneMillionModel,
+      opus47OneMillionModel,
+      opus47OneMillionModel,
+    ])
+  })
+
+  test("maps Claude Code 1m display aliases to the real 1m model", async () => {
+    const captured: Array<CapturedRequest> = []
+    const upstream = new Response(
+      JSON.stringify({
+        id: "chatcmpl-2c-display",
+        created: 1700000000,
+        model: "claude-opus-4.6-1m",
+        choices: [
+          {
+            index: 0,
+            message: { role: "assistant", content: "OK" },
+            finish_reason: "stop",
+          },
+        ],
+        usage: { prompt_tokens: 9, completion_tokens: 2, total_tokens: 11 },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    )
+
+    const { app, restore: r } = buildApp(captured, upstream)
+    restore = r
+
+    for (const model of ["claude-opus-4.6-[1m]", "claude-opus-4.6-"]) {
+      const res = await app.request("/v1/messages", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          model,
+          max_tokens: 1024,
+          messages: [{ role: "user", content: "Reply with OK" }],
+        }),
+      })
+
+      expect(res.status).toBe(200)
+    }
+
+    expect(captured.map((request) => (request.body as { model: string }).model)).toEqual([
+      "claude-opus-4.6-1m",
+      "claude-opus-4.6-1m",
+    ])
   })
 
   test("maps Claude client sonnet and haiku aliases to upstream models", async () => {

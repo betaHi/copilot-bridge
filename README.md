@@ -139,6 +139,18 @@ Minimal recommended config is:
 }
 ```
 
+For Claude Code 1M context, use the `-[1m]` display form in
+`ANTHROPIC_MODEL`. Claude Code shows a 1M context window for this form, while
+the bridge maps it to the real Copilot `-1m` model upstream:
+
+```json
+{
+  "env": {
+    "ANTHROPIC_MODEL": "claude-opus-4.7-[1m]",
+  }
+}
+```
+
 Optional slot-specific:
 
 ```json
@@ -207,6 +219,11 @@ accepts upstream.
 For Claude Opus 4.7, both Codex CLI and Claude Code can use
 `claude-opus-4.7` with reasoning effort `high` or `xhigh`; the bridge routes the
 request to the matching upstream reasoning variant.
+
+For Claude Code settings, prefer `claude-opus-4.7-[1m]` or
+`claude-opus-4.6-[1m]` when you want the CLI `/context` UI and the upstream
+model to both use 1M context. Direct API clients can use
+`claude-opus-4.7-1m` or `claude-opus-4.6-1m`.
 
 ### Gemini family — translated to chat completions
 
