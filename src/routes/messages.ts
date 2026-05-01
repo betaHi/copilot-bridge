@@ -24,6 +24,7 @@ import type { BridgeEnv } from "~/lib/config"
 import { BridgeNotImplementedError, HTTPError } from "~/lib/error"
 import { checkRateLimit, RateLimitError } from "~/lib/rate-limit"
 import { resolveModel } from "~/lib/models-resolver"
+import { runtimeState } from "~/lib/state"
 import { getTokenCount } from "~/lib/tokenizer"
 import type {
   ChatCompletionChunk,
@@ -52,12 +53,16 @@ messageRoutes.post("/", async (c) => {
   }
   const anthropicPayload = await c.req.json<AnthropicMessagesPayload>()
   const claudeSettings = await getClaudeSettings()
-  const upstreamModel = translateModelName(anthropicPayload.model, claudeSettings)
+  const effectivePayload =
+    runtimeState.modelOverride ?
+      { ...anthropicPayload, model: runtimeState.modelOverride }
+    : anthropicPayload
+  const upstreamModel = translateModelName(effectivePayload.model, claudeSettings)
   const toolNameMapper = createAnthropicToolNameMapper(anthropicPayload.tools, {
     ...getToolNameMapperOptionsForModel(upstreamModel),
   })
   const openAIPayload = translateToOpenAI(
-    anthropicPayload,
+    effectivePayload,
     claudeSettings,
     toolNameMapper,
   )
@@ -145,7 +150,11 @@ messageRoutes.post("/count_tokens", async (c) => {
     const anthropicBeta = c.req.header("anthropic-beta")
     const anthropicPayload = await c.req.json<AnthropicMessagesPayload>()
     const claudeSettings = await getClaudeSettings()
-    const openAIPayload = translateToOpenAI(anthropicPayload, claudeSettings)
+    const effectivePayload =
+      runtimeState.modelOverride ?
+        { ...anthropicPayload, model: runtimeState.modelOverride }
+      : anthropicPayload
+    const openAIPayload = translateToOpenAI(effectivePayload, claudeSettings)
 
     const selectedModel = resolveModel(openAIPayload.model)
 

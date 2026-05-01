@@ -101,9 +101,13 @@ responsesRoutes.post("/", async (c) => {
     throw error
   }
   const rawPayload = (await c.req.json()) as ResponsesRequestLike
+  const effectiveRawPayload =
+    runtimeState.modelOverride ?
+      { ...rawPayload, model: runtimeState.modelOverride }
+    : rawPayload
   const configuredReasoningEffort = await readConfiguredCodexReasoningEffort()
   const payload = normalizeCodexResponsesRequest(
-    rawPayload as unknown as Parameters<typeof normalizeCodexResponsesRequest>[0],
+    effectiveRawPayload as unknown as Parameters<typeof normalizeCodexResponsesRequest>[0],
     configuredReasoningEffort,
   ) as unknown as ResponsesRequestLike
   const config = c.get("config")

@@ -214,6 +214,7 @@ beforeEach(async () => {
 afterEach(async () => {
   restore()
   restore = () => {}
+  delete runtimeState.modelOverride
   if (isolatedHome) {
     await rm(isolatedHome, { recursive: true, force: true })
     isolatedHome = undefined
@@ -236,6 +237,42 @@ afterEach(async () => {
 })
 
 describe("/v1/messages route", () => {
+  test("uses runtime model override without writing Claude settings", async () => {
+    runtimeState.modelOverride = "claude-sonnet-4.6"
+    const captured: Array<CapturedRequest> = []
+    const upstream = new Response(
+      JSON.stringify({
+        id: "chatcmpl-runtime-model",
+        choices: [
+          {
+            index: 0,
+            message: { role: "assistant", content: "ok" },
+            finish_reason: "stop",
+          },
+        ],
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    )
+    const { app, restore: r } = buildApp(captured, upstream)
+    restore = r
+
+    const res = await app.request("/v1/messages", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-opus-4.7",
+        max_tokens: 64,
+        messages: [{ role: "user", content: "hello" }],
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    expect(captured).toHaveLength(1)
+    expect((captured[0].body as { model: string }).model).toBe(
+      "claude-sonnet-4.6",
+    )
+  })
+
   test("shortens long MCP tool names upstream and restores them in tool_use", async () => {
     const originalToolName =
       "mcp__plugin_microsoft-docs_microsoft-learn__microsoft_code_sample_search"

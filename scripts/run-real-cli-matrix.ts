@@ -197,6 +197,7 @@ const pickResponseModelFromSse = (text: string): unknown => {
     const data = line.slice("data:".length).trim()
     if (!data || data === "[DONE]") continue
     const parsed = asRecord(parseJson(data))
+    if (typeof parsed?.model === "string") return parsed.model
     const response = asRecord(parsed?.response)
     if (typeof response?.model === "string") return response.model
   }
@@ -600,6 +601,7 @@ const evaluateCase = (
     upstream_called: trace !== undefined,
     upstream_status: trace ? trace.status >= 200 && trace.status <= 299 : false,
     upstream_model: trace?.request.model === testCase.upstreamModel,
+    upstream_response_model: trace?.response.model === testCase.upstreamModel,
     upstream_effort: trace ? effortMatches(testCase, trace) : false,
   }
   const ok = Object.values(checks).every(Boolean)

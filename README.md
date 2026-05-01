@@ -1,7 +1,7 @@
 <h1 align="center">copilot-bridge</h1>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/betahi-copilot-bridge"><img src="https://img.shields.io/npm/v/betahi-copilot-bridge.svg?v=0.20.2" alt="npm version"></a>
+  <a href="https://www.npmjs.com/package/betahi-copilot-bridge"><img src="https://img.shields.io/npm/v/betahi-copilot-bridge.svg?v=0.20.3" alt="npm version"></a>
   <a href="https://github.com/betahi/copilot-bridge/blob/main/LICENSE"><img src="https://img.shields.io/npm/l/betahi-copilot-bridge.svg" alt="license"></a>
 </p>
 
@@ -31,10 +31,6 @@ npx betahi-copilot-bridge@latest auth
 npx betahi-copilot-bridge@latest start
 ```
 
-`start` flags: `--host`, `--port`, `--show-token`, `--debug`,
-`--no-codex-setup`, `--select-model`, `--no-prompt`,
-`--rate-limit <seconds>`, `--wait`.
-
 After startup the banner prints a **Usage Viewer** link of the form
 `https://betahi.github.io/copilot-bridge?endpoint=http://127.0.0.1:4142/usage`,
 which renders the Copilot quota snapshot (chat / completions / premium
@@ -45,16 +41,6 @@ The bridge exposes both adapter-style endpoints (`/v1/responses`,
 (`/v1/chat/completions`, `/v1/embeddings`, `/v1/models`) so tools like
 LiteLLM, Continue, Cline and Aider work out of the box. CORS is enabled
 globally for browser-based clients.
-
-`--rate-limit N` enforces a minimum of N seconds between upstream
-requests (anti–abuse-detection throttle). Add `--wait` to block instead
-of returning HTTP 429 when the window has not elapsed.
-
-`--debug` enables extra upstream error diagnostics in console logs.
-- Includes: token limits, stream mode, tool count, invalid tool names, and suspicious tool-schema paths.
-- Does not include: request messages, prompt text, bearer tokens, tool descriptions, or the full request body.
-
-**Review or redact debug logs before sharing them publicly.**
 
 ## Configure Codex CLI
 
@@ -141,6 +127,44 @@ Slot-specific overrides:
 project-local `.claude/settings.json` and `.claude/settings.local.json` and
 applied to Claude requests only when the model supports reasoning. If it is not
 configured, Claude requests do not infer or attach a reasoning effort.
+
+## Start flags
+
+Common:
+
+| Flag | Purpose |
+| ---- | ------- |
+| `--host <host>` | Bind address. Defaults to `127.0.0.1`. |
+| `--port <port>` | Listen port. Overrides `$PORT` and the port inferred from Claude settings. |
+| `--model <model>` | Override the request model for this bridge process only; does not edit config files. |
+| `--rate-limit <seconds>` | Enforce a minimum delay between upstream requests. |
+| `--wait` | With `--rate-limit`, wait instead of returning HTTP 429. |
+
+Codex:
+
+| Flag | Purpose |
+| ---- | ------- |
+| `--no-codex-setup` | Skip writing the managed block into `~/.codex/config.toml`. |
+| `--no-prompt` | Never prompt for a Codex default model. |
+
+Claude:
+
+| Flag | Purpose |
+| ---- | ------- |
+| `--no-claude-setup` | Skip writing `ANTHROPIC_BASE_URL` into `~/.claude/settings.json`. |
+
+Diagnostics:
+
+| Flag | Purpose |
+| ---- | ------- |
+| `--debug` | Print extra upstream error diagnostics. |
+| `--show-token` | Print GitHub and Copilot tokens during startup. Sensitive; use only for local debugging. |
+
+`--debug` enables extra upstream error diagnostics in console logs.
+- Includes: token limits, stream mode, tool count, invalid tool names, and suspicious tool-schema paths.
+- Does not include: request messages, prompt text, bearer tokens, tool descriptions, or the full request body.
+
+**Review or redact debug logs before sharing them publicly.**
 
 ## Environment overrides
 

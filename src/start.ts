@@ -8,10 +8,6 @@ import {
   readClaudeBaseUrl,
 } from "~/lib/claude-settings"
 import {
-  buildClaudeLaunchCommand,
-  pickClaudeLaunchDefaults,
-} from "~/lib/claude-launch"
-import {
   applyCodexConfig,
   readCodexUserConfigFromDisk,
 } from "~/lib/codex-config"
@@ -98,17 +94,10 @@ export const start = defineCommand({
       description:
         "Skip writing ANTHROPIC_BASE_URL into ~/.claude/settings.json.",
     },
-    "claude-code": {
-      type: "boolean",
-      default: false,
+    model: {
+      type: "string",
       description:
-        "Print a one-shot `export ... && claude` command and do not modify user config files.",
-    },
-    "select-model": {
-      type: "boolean",
-      default: false,
-      description:
-        "Force the model picker even when ~/.codex/config.toml already has a model.",
+        "Override the request model for this bridge process only.",
     },
     prompt: {
       type: "boolean",
@@ -187,19 +176,20 @@ export const start = defineCommand({
 
     const baseUrl = `http://${config.host}:${config.port}`
     const codexConfigPath = CODEX_DEFAULTS.configPath
-    const isClaudeCodeMode = Boolean(args["claude-code"])
+    const requestedModel =
+      args.model !== undefined ? String(args.model) : undefined
+    if (requestedModel) {
+      runtimeState.modelOverride = requestedModel
+      consola.info(`Runtime model override: ${requestedModel}`)
+    } else {
+      delete runtimeState.modelOverride
+    }
 
     // Sync Claude Code's settings.json and Codex's config.toml *before* any
     // potentially blocking interactive prompt. This guarantees `claude` and
     // `codex` work the moment the server is listening — even if the user
     // never answers the model picker below.
-    if (isClaudeCodeMode) {
-      consola.info(
-        "--claude-code mode: not modifying ~/.claude/settings.json or ~/.codex/config.toml",
-      )
-    }
-
-    if (!isClaudeCodeMode && args["claude-setup"]) {
+    if (args["claude-setup"]) {
       try {
         const claudeResult = await applyClaudeConfig({
           baseUrl,
@@ -255,7 +245,7 @@ export const start = defineCommand({
       }
     }
 
-    if (!isClaudeCodeMode && args["codex-setup"]) {
+    if (args["codex-setup"]) {
       try {
         const result = await applyCodexConfig({
           baseUrl: `${baseUrl}/v1`,
@@ -326,11 +316,10 @@ export const start = defineCommand({
     )
 
     const shouldPrompt =
-      !isClaudeCodeMode
-      &&
       args.prompt
       && finalPickable.length > 0
-      && (args["select-model"] || !chosenModel)
+      && !chosenModel
+      && !requestedModel
 
     if (shouldPrompt) {
       const defaultId =
@@ -379,37 +368,6 @@ export const start = defineCommand({
           }
         }
       }
-    }
-
-    if (isClaudeCodeMode) {
-      const defaults = pickClaudeLaunchDefaults(finalPickable, chosenModel)
-      let selectedModel = defaults.model
-
-      if (args.prompt && finalPickable.length > 0) {
-        selectedModel = (await consola.prompt(
-          "Select a model to use with Claude Code",
-          {
-            type: "select",
-            options: finalPickable,
-            initial: defaults.model,
-          },
-        )) as string
-      }
-
-      const command = buildClaudeLaunchCommand({
-        baseUrl,
-        model: selectedModel,
-      })
-
-      consola.box(
-        [
-          "Claude one-shot command",
-          "",
-          `  ${command}`,
-          "",
-          "  The bridge verified this path with explicit --model; current Claude CLI did not reliably honor ANTHROPIC_MODEL env defaults.",
-        ].join("\n"),
-      )
     }
 
     await new Promise<void>((resolve, reject) => {

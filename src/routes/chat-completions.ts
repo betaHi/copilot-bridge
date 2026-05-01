@@ -4,6 +4,7 @@ import { streamSSE, type SSEMessage } from "hono/streaming"
 import type { BridgeEnv } from "~/lib/config"
 import { BridgeNotImplementedError, HTTPError } from "~/lib/error"
 import { checkRateLimit, RateLimitError } from "~/lib/rate-limit"
+import { runtimeState } from "~/lib/state"
 import type {
   ChatCompletionResponse,
   ChatCompletionsPayload,
@@ -23,7 +24,11 @@ chatCompletionRoutes.post("/", async (c) => {
   try {
     await checkRateLimit()
     const payload = await c.req.json<ChatCompletionsPayload>()
-    const response = await createChatCompletions(c.var.config, payload, {
+    const effectivePayload =
+      runtimeState.modelOverride ?
+        { ...payload, model: runtimeState.modelOverride }
+      : payload
+    const response = await createChatCompletions(c.var.config, effectivePayload, {
       client: "generic",
     })
 

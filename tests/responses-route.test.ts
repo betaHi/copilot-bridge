@@ -5,6 +5,7 @@ import path from "node:path"
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 
 import type { BridgeConfig, BridgeEnv } from "~/lib/config"
+import { runtimeState } from "~/lib/state"
 import { chatCompletionRoutes } from "~/routes/chat-completions"
 import { responsesRoutes } from "~/routes/responses"
 
@@ -69,6 +70,7 @@ const originalCodexConfigPath = process.env.CODEX_CONFIG_PATH
 afterEach(() => {
   restore()
   restore = () => {}
+  delete runtimeState.modelOverride
   if (originalCodexConfigPath === undefined) {
     delete process.env.CODEX_CONFIG_PATH
   } else {
@@ -77,6 +79,31 @@ afterEach(() => {
 })
 
 describe("/v1/responses route — passthrough vs translation contract", () => {
+  test("uses runtime model override without changing client config", async () => {
+    runtimeState.modelOverride = "gpt-5.3-codex"
+    const captured: Array<CapturedRequest> = []
+    const upstream = new Response('{"id":"resp_1","object":"response"}', {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    })
+    const { app, restore: r } = buildApp(captured, upstream)
+    restore = r
+
+    const res = await app.request("/v1/responses", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "gpt-5.4",
+        input: "ping",
+        stream: false,
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    expect(captured).toHaveLength(1)
+    expect((captured[0].body as { model: string }).model).toBe("gpt-5.3-codex")
+  })
+
   test("GPT-5 family is forwarded directly to upstream /responses (true passthrough)", async () => {
     const captured: Array<CapturedRequest> = []
     const upstream = new Response('{"id":"resp_1","object":"response"}', {

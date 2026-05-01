@@ -22,6 +22,12 @@ describe("start CLI boolean flags", () => {
     expect(parsed.debug).toBe(true)
   })
 
+  test("supports explicit --model runtime override", () => {
+    const parsed = parseArgs(["--model", "claude-opus-4.7-[1m]"], startArgs)
+
+    expect(parsed.model).toBe("claude-opus-4.7-[1m]")
+  })
+
   test("supports --no-* negation for setup and prompt flags", () => {
     const parsed = parseArgs(
       ["--no-claude-setup", "--no-codex-setup", "--no-prompt"],
