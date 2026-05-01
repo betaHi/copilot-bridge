@@ -7,28 +7,9 @@
 
 > Use GitHub Copilot as a local OpenAI/Anthropic-compatible API, so [Codex CLI](https://developers.openai.com/codex/cli), [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview) and Continue can talk to Copilot with minimal configuration.
 
-> [!WARNING]
-> This is a reverse-engineered bridge for the GitHub Copilot API. It is not
-> supported by GitHub, and may break unexpectedly. Use at your own risk.
-
-> [!WARNING]
-> **GitHub Security Notice:**
-> Excessive automated or scripted use of Copilot (including rapid or bulk
-> requests, such as via automated tools) may trigger GitHub's abuse-detection
-> systems. You may receive a warning from GitHub Security, and further
-> anomalous activity could result in temporary suspension of your Copilot
-> access.
->
-> GitHub prohibits use of their servers for excessive automated bulk activity
-> or any activity that places undue burden on their infrastructure.
->
-> Please review:
->
-> - [GitHub Acceptable Use Policies](https://docs.github.com/site-policy/acceptable-use-policies/github-acceptable-use-policies#4-spam-and-inauthentic-activity-on-github)
-> - [GitHub Copilot Terms](https://docs.github.com/site-policy/github-terms/github-terms-for-additional-products-and-features#github-copilot)
->
-> Use this bridge responsibly to avoid account restrictions. The
-> `--rate-limit <seconds>` flag is provided to help throttle upstream traffic.
+> [!CAUTION]
+> This is an unofficial bridge for the GitHub Copilot API and may break if the
+> upstream API changes.
 
 ## Demo
 
@@ -113,7 +94,7 @@ manage `~/.codex/config.toml` yourself).
 This is a Codex client-side metadata warning, not a bridge routing failure.
 Requests can still complete through the bridge.
 
-For 1m model, upstream still enforces a 1,000,000-token prompt
+For 1M models, upstream still enforces a 1,000,000-token prompt
 limit (about 900k succeeds; around 1,000,046 is rejected as too long).
 
 ## Configure Claude Code
@@ -146,7 +127,7 @@ the bridge maps it to the real Copilot `-1m` model upstream:
 ```json
 {
   "env": {
-    "ANTHROPIC_MODEL": "claude-opus-4.7-[1m]",
+    "ANTHROPIC_MODEL": "claude-opus-4.7-[1m]"
   }
 }
 ```
@@ -180,8 +161,6 @@ configured, Claude requests do not infer or attach a reasoning effort.
 | `COPILOT_BASE_URL`         | Override the upstream Copilot base URL.              |
 | `COPILOT_VSCODE_VERSION`   | Override the VS Code version sent upstream.          |
 | `MODEL_REASONING_EFFORT`   | Claude-side reasoning effort override.              |
-
-
 
 ## Supported models
 
