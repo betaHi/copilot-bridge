@@ -22,6 +22,21 @@ describe("models-resolver: Claude snapshot aliases", () => {
     )
   })
 
+  test("maps Claude opus 4.7 variant aliases to dotted upstream ids", () => {
+    expect(resolveUpstreamModelId("claude-opus-4.7-1m", [])).toBe(
+      "claude-opus-4.7-1m-internal",
+    )
+    expect(resolveUpstreamModelId("claude-opus-4-7-high", [])).toBe(
+      "claude-opus-4.7-high",
+    )
+    expect(resolveUpstreamModelId("claude-opus-4-7-xhigh", [])).toBe(
+      "claude-opus-4.7-xhigh",
+    )
+    expect(resolveUpstreamModelId("claude-opus-4-7-1m-internal", [])).toBe(
+      "claude-opus-4.7-1m-internal",
+    )
+  })
+
   test("normalizes Claude snapshot aliases even when the date suffix is omitted", () => {
     expect(resolveUpstreamModelId("claude-sonnet-4-6", [])).toBe(
       "claude-sonnet-4.6",

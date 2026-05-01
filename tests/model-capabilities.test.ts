@@ -27,6 +27,10 @@ describe("model-capabilities: alias + capability lookup", () => {
   test("Claude/Gemini are flagged as chat-completions fallback", () => {
     for (const id of [
       "claude-opus-4.7",
+      "claude-opus-4.7-1m-internal",
+      "claude-opus-4.7-1m",
+      "claude-opus-4.7-high",
+      "claude-opus-4.7-xhigh",
       "claude-opus-4.6",
       "claude-opus-4.6-1m",
       "gemini-3.1-pro-preview",
@@ -36,10 +40,18 @@ describe("model-capabilities: alias + capability lookup", () => {
     }
   })
 
-  test("claude-opus-4.7 places reasoning under output_config.effort", () => {
-    expect(getModelCapability("claude-opus-4.7")?.reasoningField).toBe(
-      "output_config.effort",
-    )
+  test("claude-opus-4.7 family places reasoning under output_config.effort", () => {
+    for (const id of [
+      "claude-opus-4.7",
+      "claude-opus-4.7-1m-internal",
+      "claude-opus-4.7-1m",
+      "claude-opus-4.7-high",
+      "claude-opus-4.7-xhigh",
+    ]) {
+      expect(getModelCapability(id)?.reasoningField).toBe(
+        "output_config.effort",
+      )
+    }
   })
 })
 
@@ -78,10 +90,44 @@ describe("model-capabilities: clampReasoningEffort", () => {
     })
   })
 
-  test("claude-opus-4.7 accepts max", () => {
+  test("claude-opus-4.7 clamps to its advertised medium effort", () => {
     expect(clampReasoningEffort("claude-opus-4.7", "max")).toEqual({
-      effort: "max",
+      effort: "medium",
+      changed: true,
+      reason: "unsupported-effort",
+    })
+  })
+
+  test("claude-opus-4.7 effort variants keep suffix-specific defaults", () => {
+    expect(clampReasoningEffort("claude-opus-4.7-1m", undefined)).toEqual({
+      effort: "medium",
       changed: false,
+    })
+    expect(clampReasoningEffort("claude-opus-4.7-high", undefined)).toEqual({
+      effort: "high",
+      changed: false,
+    })
+    expect(clampReasoningEffort("claude-opus-4.7-xhigh", undefined)).toEqual({
+      effort: "xhigh",
+      changed: false,
+    })
+  })
+
+  test("claude-opus-4.7 effort variants clamp to advertised upstream efforts", () => {
+    expect(clampReasoningEffort("claude-opus-4.7-1m", "max")).toEqual({
+      effort: "xhigh",
+      changed: true,
+      reason: "unsupported-effort",
+    })
+    expect(clampReasoningEffort("claude-opus-4.7-high", "low")).toEqual({
+      effort: "high",
+      changed: true,
+      reason: "unsupported-effort",
+    })
+    expect(clampReasoningEffort("claude-opus-4.7-xhigh", "max")).toEqual({
+      effort: "xhigh",
+      changed: true,
+      reason: "unsupported-effort",
     })
   })
 })

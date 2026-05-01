@@ -36,13 +36,40 @@ const removeReasoningEffort = (reasoning: ReasoningField): ReasoningField | unde
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value)
 
+const routeClaudeOpus47ByReasoningEffort = (
+  model: string,
+  effort: unknown,
+): string => {
+  if (model !== "claude-opus-4.7") {
+    return model
+  }
+
+  switch (typeof effort === "string" ? effort.toLowerCase() : undefined) {
+    case "high": {
+      return "claude-opus-4.7-high"
+    }
+    case "xhigh":
+    case "max": {
+      return "claude-opus-4.7-xhigh"
+    }
+    default: {
+      return model
+    }
+  }
+}
+
 export const normalizeCodexResponsesRequest = (
   payload: CodexResponsesRequest,
 ): CodexResponsesRequest => {
   const parsed = codexResponsesRequestSchema.parse(payload) as CodexResponsesRequest
     & { reasoning?: ReasoningField; text?: TextField }
 
-  const canonical = resolveModelId(parsed.model)
+  const requestedReasoningEffort =
+    isPlainObject(parsed.reasoning) ? parsed.reasoning.effort : undefined
+  const canonical = routeClaudeOpus47ByReasoningEffort(
+    resolveModelId(parsed.model),
+    requestedReasoningEffort,
+  )
   const capability = getModelCapability(canonical)
   if (!capability) return parsed
 

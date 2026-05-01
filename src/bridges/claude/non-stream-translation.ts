@@ -40,31 +40,87 @@ const normalizeClaudeModelAlias = (model: string): string => {
   }
 
   const normalized = trimmed.replace(/\[1m\]$/, "")
+  const prefixed = normalized.startsWith("opus-") ? `claude-${normalized}` : normalized
 
-  if (normalized === "opus") {
+  if (prefixed === "opus") {
     return "claude-opus"
   }
 
-  if (normalized === "sonnet") {
+  if (prefixed === "sonnet") {
     return "claude-sonnet"
   }
 
-  if (normalized === "haiku") {
+  if (prefixed === "haiku") {
     return "claude-haiku"
   }
 
-  if (/^claude-(opus|sonnet|haiku)-\d-\d(?:-1m)?$/.test(normalized)) {
-    return normalized.replace(
-      /^claude-(opus|sonnet|haiku)-(\d)-(\d)(-1m)?$/,
-      "claude-$1-$2.$3$4",
-    )
+  const claudeSnapshotMatch = prefixed.match(
+    /^claude-(opus|sonnet|haiku)-(\d)-(\d)((?:-[a-z0-9]+)*?)(?:-\d{8})?$/,
+  )
+  if (claudeSnapshotMatch) {
+    const [, family, major, minor, suffix = ""] = claudeSnapshotMatch
+    return `claude-${family}-${major}.${minor}${suffix}`
   }
 
-  if (/^claude-opus-4-7-\d{8}$/.test(normalized)) {
-    return "claude-opus-4.7"
+  return prefixed
+}
+
+function normalizeClaudeReasoningEffortForRouting(
+  value: string | undefined,
+): ClaudeOpus47Effort | undefined {
+  switch (value?.toLowerCase()) {
+    case "low":
+    case "medium":
+    case "high":
+    case "xhigh":
+    case "max": {
+      return value.toLowerCase() as ClaudeOpus47Effort
+    }
+    default: {
+      return undefined
+    }
+  }
+}
+
+const getEnvValueCaseInsensitive = (
+  env: Record<string, string>,
+  key: string,
+): string | undefined => {
+  const direct = env[key]
+  if (typeof direct === "string") {
+    return direct
+  }
+  const lower = key.toLowerCase()
+  const matched = Object.entries(env).find(([k]) => k.toLowerCase() === lower)
+  return matched?.[1]
+}
+
+const getConfiguredClaudeReasoningEffort = (
+  settings: Pick<ClaudeSettings, "env"> | undefined,
+): string | undefined =>
+  process.env.MODEL_REASONING_EFFORT
+  ?? getEnvValueCaseInsensitive(settings?.env ?? {}, "MODEL_REASONING_EFFORT")
+
+const routeClaudeOpus47ByEffort = (
+  model: string,
+  requestedEffort: string | undefined,
+): string => {
+  if (model !== "claude-opus-4.7") {
+    return model
   }
 
-  return normalized
+  switch (normalizeClaudeReasoningEffortForRouting(requestedEffort)) {
+    case "high": {
+      return "claude-opus-4.7-high"
+    }
+    case "xhigh":
+    case "max": {
+      return "claude-opus-4.7-xhigh"
+    }
+    default: {
+      return model
+    }
+  }
 }
 
 const getConfiguredClaudeDefaultModel = (
@@ -119,9 +175,15 @@ const resolveClaudeRequestedModel = (
 export function translateModelName(
   model: string,
   settings?: Pick<ClaudeSettings, "env" | "model">,
+  requestedReasoningEffort?: string,
 ): string {
   const requestedModel = resolveClaudeRequestedModel(model, settings)
-  return resolveUpstreamModelId(normalizeClaudeModelAlias(requestedModel))
+  const normalizedModel = normalizeClaudeModelAlias(requestedModel)
+  const routedModel = routeClaudeOpus47ByEffort(
+    normalizedModel,
+    requestedReasoningEffort ?? getConfiguredClaudeReasoningEffort(settings),
+  )
+  return resolveUpstreamModelId(routedModel)
 }
 
 function isClaudeModel(modelId: string): boolean {
@@ -197,7 +259,7 @@ function translateThinking(
   payload: AnthropicMessagesPayload,
   settings?: Pick<ClaudeSettings, "env" | "model">,
 ): ChatCompletionsPayload["thinking"] {
-  const modelId = translateModelName(payload.model, settings)
+  const modelId = translateModelName(payload.model, settings, payload.reasoning_effort)
 
   if (!isClaudeOpus47Model(modelId)) {
     return undefined
@@ -214,7 +276,7 @@ function translateOutputConfig(
   payload: AnthropicMessagesPayload,
   settings?: Pick<ClaudeSettings, "env" | "model">,
 ): ChatCompletionsPayload["output_config"] {
-  const modelId = translateModelName(payload.model, settings)
+  const modelId = translateModelName(payload.model, settings, payload.reasoning_effort)
 
   if (!isClaudeOpus47Model(modelId)) {
     return undefined
@@ -257,7 +319,7 @@ function translateReasoningEffort(
   payload: AnthropicMessagesPayload,
   settings?: Pick<ClaudeSettings, "env" | "model">,
 ): ChatCompletionsPayload["reasoning_effort"] {
-  const modelId = translateModelName(payload.model, settings)
+  const modelId = translateModelName(payload.model, settings, payload.reasoning_effort)
 
   if (isClaudeOpus47Model(modelId)) {
     return undefined
@@ -301,7 +363,7 @@ export function translateToOpenAI(
   settings?: Pick<ClaudeSettings, "env" | "model">,
   toolNameMapper?: AnthropicToolNameMapper,
 ): ChatCompletionsPayload {
-  const model = translateModelName(payload.model, settings)
+  const model = translateModelName(payload.model, settings, payload.reasoning_effort)
   const mapper = toolNameMapper ?? createAnthropicToolNameMapper(payload.tools, {
     ...getToolNameMapperOptionsForModel(model),
   })

@@ -208,6 +208,78 @@ describe("/v1/responses route — passthrough vs translation contract", () => {
     expect(sseText).toContain('"delta":"Hi"')
   })
 
+  test("Claude opus 4.7 Codex fallback routes reasoning efforts to variants", async () => {
+    for (const [effort, expectedModel, expectedEffort] of [
+      ["medium", "claude-opus-4.7", "medium"],
+      ["high", "claude-opus-4.7-high", "high"],
+      ["xhigh", "claude-opus-4.7-xhigh", "xhigh"],
+      ["max", "claude-opus-4.7-xhigh", "xhigh"],
+    ] as const) {
+      const captured: Array<CapturedRequest> = []
+      const upstream = new Response(
+        JSON.stringify({
+          id: `chatcmpl-opus47-${effort}`,
+          model: expectedModel,
+          choices: [{ message: { role: "assistant", content: "Hi" } }],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      )
+      const { app, restore: r } = buildApp(captured, upstream)
+      restore = r
+
+      const res = await app.request("/v1/responses", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          model: "claude-opus-4.7",
+          input: "hi",
+          reasoning: { effort },
+        }),
+      })
+
+      expect(res.status).toBe(200)
+      expect((captured[0].body as { model: string }).model).toBe(expectedModel)
+      expect(
+        (captured[0].body as { output_config?: { effort?: string } })
+          .output_config,
+      ).toEqual({ effort: expectedEffort })
+      restore()
+    }
+  })
+
+  test("Claude opus 4.7 Codex fallback accepts public 1M alias", async () => {
+    const captured: Array<CapturedRequest> = []
+    const upstream = new Response(
+      JSON.stringify({
+        id: "chatcmpl-opus47-1m",
+        model: "claude-opus-4.7-1m-internal",
+        choices: [{ message: { role: "assistant", content: "Hi" } }],
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    )
+    const { app, restore: r } = buildApp(captured, upstream)
+    restore = r
+
+    const res = await app.request("/v1/responses", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-opus-4.7-1m",
+        input: "hi",
+        reasoning: { effort: "high" },
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    expect((captured[0].body as { model: string }).model).toBe(
+      "claude-opus-4.7-1m-internal",
+    )
+    expect(
+      (captured[0].body as { output_config?: { effort?: string } })
+        .output_config,
+    ).toEqual({ effort: "high" })
+  })
+
   test("upstream errors on translated path are propagated with original status", async () => {
     const captured: Array<CapturedRequest> = []
     const upstream = new Response(

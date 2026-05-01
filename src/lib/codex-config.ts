@@ -17,6 +17,8 @@ const LEGACY_END_MARK = "# <<< copilot-bridge managed (do not edit) <<<"
 // We never put these in our managed block to avoid TOML duplicate-key errors.
 const USER_OWNED_SCALARS = ["model", "model_reasoning_effort"] as const
 type UserScalar = (typeof USER_OWNED_SCALARS)[number]
+const USER_OWNED_BOOLEANS = ["model_supports_reasoning_summaries"] as const
+type UserBoolean = (typeof USER_OWNED_BOOLEANS)[number]
 
 interface ApplyCodexConfigInput {
   baseUrl: string
@@ -136,6 +138,22 @@ function setTopScalar(
   return `${line}\n${topSection.startsWith("\n") ? "" : ""}${topSection}`
 }
 
+function setTopBoolean(
+  topSection: string,
+  key: UserBoolean,
+  value: boolean | undefined,
+): string {
+  if (value === undefined) return topSection
+
+  const re = new RegExp(`^\\s*${key}\\s*=\\s*(true|false)\\s*$`, "m")
+  const line = `${key} = ${value ? "true" : "false"}`
+  if (re.test(topSection)) {
+    return topSection.replace(re, line)
+  }
+  if (topSection.length === 0) return `${line}\n`
+  return `${line}\n${topSection.startsWith("\n") ? "" : ""}${topSection}`
+}
+
 function applyUserScalars(
   content: string,
   input: ApplyCodexConfigInput,
@@ -147,6 +165,11 @@ function applyUserScalars(
     nextTop,
     "model_reasoning_effort",
     input.modelReasoningEffort,
+  )
+  nextTop = setTopBoolean(
+    nextTop,
+    "model_supports_reasoning_summaries",
+    input.modelReasoningEffort === undefined ? undefined : true,
   )
   if (nextTop === top) return content
   if (rest.length === 0) {

@@ -115,11 +115,11 @@ describe("chat-fallback: request translation", () => {
       {
         model: "claude-opus-4.7",
         input: "x",
-        reasoning: { effort: "max" },
+        reasoning: { effort: "medium" },
       },
       claudeOpus47,
     )
-    expect(out.output_config).toEqual({ effort: "max" })
+    expect(out.output_config).toEqual({ effort: "medium" })
     expect(out.reasoning_effort).toBeUndefined()
   })
 

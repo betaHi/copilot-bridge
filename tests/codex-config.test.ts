@@ -95,8 +95,29 @@ describe("applyCodexConfig", () => {
     const content = await readFile(p, "utf8")
     expect(content).toMatch(/^model = "claude-opus-4\.7"$/m)
     expect(content).toMatch(/^model_reasoning_effort = "high"$/m)
+    expect(content).toMatch(/^model_supports_reasoning_summaries = true$/m)
     const managedStart = content.indexOf(">>> copilot-bridge managed")
     expect(content.slice(0, managedStart)).toContain('model = "claude-opus-4.7"')
+  })
+
+  test("updates Codex reasoning metadata switch when writing effort", async () => {
+    const p = await makeConfigPath()
+    await writeFile(
+      p,
+      `model = "gpt-5-mini"
+model_supports_reasoning_summaries = false
+`,
+    )
+    await applyCodexConfig({
+      configPath: p,
+      baseUrl: "http://127.0.0.1:4242/v1",
+      settings: baseSettings,
+      modelReasoningEffort: "low",
+    })
+    const content = await readFile(p, "utf8")
+    expect(content).toMatch(/^model_reasoning_effort = "low"$/m)
+    expect(content).toMatch(/^model_supports_reasoning_summaries = true$/m)
+    expect(content.match(/^model_supports_reasoning_summaries = /gm)).toHaveLength(1)
   })
 
   test("preserves user's pre-existing top-level keys when adding managed block", async () => {

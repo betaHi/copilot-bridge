@@ -11,6 +11,38 @@ describe("codex /v1/responses request normalizer", () => {
     expect(out.model).toBe("gemini-3.1-pro-preview")
   })
 
+  test("rewrites public Claude opus 4.7 1M alias to upstream model id", () => {
+    const out = normalizeCodexResponsesRequest({
+      model: "claude-opus-4.7-1m",
+      reasoning: { effort: "high" },
+    } as never) as { model: string; reasoning?: { effort?: string } }
+
+    expect(out.model).toBe("claude-opus-4.7-1m-internal")
+    expect(out.reasoning?.effort).toBe("high")
+  })
+
+  test("routes base Claude opus 4.7 to reasoning variants for Codex efforts", () => {
+    const high = normalizeCodexResponsesRequest({
+      model: "claude-opus-4.7",
+      reasoning: { effort: "high" },
+    } as never) as { model: string; reasoning?: { effort?: string } }
+    const xhigh = normalizeCodexResponsesRequest({
+      model: "claude-opus-4.7",
+      reasoning: { effort: "xhigh" },
+    } as never) as { model: string; reasoning?: { effort?: string } }
+    const max = normalizeCodexResponsesRequest({
+      model: "claude-opus-4.7",
+      reasoning: { effort: "max" },
+    } as never) as { model: string; reasoning?: { effort?: string } }
+
+    expect(high.model).toBe("claude-opus-4.7-high")
+    expect(high.reasoning?.effort).toBe("high")
+    expect(xhigh.model).toBe("claude-opus-4.7-xhigh")
+    expect(xhigh.reasoning?.effort).toBe("xhigh")
+    expect(max.model).toBe("claude-opus-4.7-xhigh")
+    expect(max.reasoning?.effort).toBe("xhigh")
+  })
+
   test("strips reasoning for models without reasoning support (gemini)", () => {
     const out = normalizeCodexResponsesRequest({
       model: "gemini-3-flash-preview",

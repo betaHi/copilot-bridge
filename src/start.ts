@@ -41,6 +41,11 @@ interface CopilotModelsResponse {
   data?: Array<CopilotModel>
 }
 
+const getPublicModelId = (id: string): string =>
+  id === "claude-opus-4.7-1m-internal" ? "claude-opus-4.7-1m" : id
+
+const unique = (ids: Array<string>): Array<string> => [...new Set(ids)]
+
 const fetchAvailableModels = async (
   config: ReturnType<typeof readBridgeConfig>,
 ): Promise<Array<string>> => {
@@ -284,17 +289,28 @@ export const start = defineCommand({
     }
 
     const models = await fetchAvailableModels(config)
-    const supportedIds = new Set(MODEL_CAPABILITIES.map((m) => m.id))
+    const supportedIds = new Set(
+      MODEL_CAPABILITIES.flatMap((m) => [m.id, ...(m.aliases ?? [])]),
+    )
+    const fallbackModelIds = unique(
+      MODEL_CAPABILITIES.map((m) => getPublicModelId(m.id)),
+    )
     const pickable =
       models.length > 0 ?
-        models.filter((id) => supportedIds.has(id))
-      : MODEL_CAPABILITIES.map((m) => m.id)
-    const finalPickable =
-      pickable.length > 0 ? pickable : MODEL_CAPABILITIES.map((m) => m.id)
+        unique(
+          models
+            .filter((id) => supportedIds.has(id))
+            .map((id) => getPublicModelId(id)),
+        )
+      : fallbackModelIds
+    const finalPickable = pickable.length > 0 ? pickable : fallbackModelIds
     if (models.length > 0) {
       consola.info(
         `Available models:\n${models
-          .map((id) => `- ${id}${supportedIds.has(id) ? " (bridge-supported)" : ""}`)
+          .map((id) => {
+            const publicId = getPublicModelId(id)
+            return `- ${publicId}${supportedIds.has(id) ? " (bridge-supported)" : ""}`
+          })
           .join("\n")}`,
       )
     } else {

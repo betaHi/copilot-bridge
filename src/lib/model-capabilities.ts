@@ -96,15 +96,28 @@ export const MODEL_CAPABILITIES: ReadonlyArray<ModelCapability> = [
   // Claude family — Copilot does not expose /v1/responses for Claude, so we
   // translate to /v1/chat/completions. Only opus-4.7 places effort under
   // output_config.effort; the others use the standard reasoning_effort.
-  {
-    id: "claude-opus-4.7",
-    fallback: "chat-completions",
-    reasoningField: "output_config.effort",
-    reasoning: {
-      supported: ["low", "medium", "high", "xhigh", "max"],
-      default: "medium",
+  ...[
+    { id: "claude-opus-4.7", supported: ["medium"], defaultEffort: "medium" },
+    {
+      id: "claude-opus-4.7-1m-internal",
+      aliases: ["claude-opus-4.7-1m"],
+      supported: ["low", "medium", "high", "xhigh"],
+      defaultEffort: "medium",
     },
-  },
+    { id: "claude-opus-4.7-high", supported: ["high"], defaultEffort: "high" },
+    { id: "claude-opus-4.7-xhigh", supported: ["xhigh"], defaultEffort: "xhigh" },
+  ].map(
+    ({ id, aliases, supported, defaultEffort }): ModelCapability => ({
+      id,
+      aliases,
+      fallback: "chat-completions",
+      reasoningField: "output_config.effort",
+      reasoning: {
+        supported: supported as Array<ReasoningEffort>,
+        default: defaultEffort as ReasoningEffort,
+      },
+    }),
+  ),
   {
     id: "claude-opus-4.6",
     fallback: "chat-completions",

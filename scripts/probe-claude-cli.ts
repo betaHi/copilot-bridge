@@ -19,7 +19,10 @@ const CASES: Case[] = [
   { model: "gpt-5.2-codex", efforts: ["low", "medium", "high", "xhigh"] },
   { model: "gpt-5-mini", efforts: ["low", "medium", "high"] },
   // Claude
-  { model: "claude-opus-4.7", efforts: ["low", "medium", "high", "xhigh", "max"] },
+  { model: "claude-opus-4.7", efforts: ["medium"] },
+  { model: "claude-opus-4.7-1m", efforts: ["low", "medium", "high", "xhigh"] },
+  { model: "claude-opus-4.7-high", efforts: ["high"] },
+  { model: "claude-opus-4.7-xhigh", efforts: ["xhigh"] },
   { model: "claude-opus-4.6", efforts: ["low", "medium", "high"] },
   { model: "claude-opus-4.6-1m", efforts: ["low", "medium", "high"] },
   { model: "claude-sonnet-4.6", efforts: ["low", "medium", "high"] },

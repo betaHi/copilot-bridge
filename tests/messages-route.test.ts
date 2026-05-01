@@ -2,8 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 
-import { afterEach, beforeAll, describe, expect, test } from "bun:test"
-
+import { afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test"
 import { Hono } from "hono"
 
 import type { BridgeConfig, BridgeEnv } from "~/lib/config"
@@ -41,6 +40,57 @@ beforeAll(() => {
         model_picker_enabled: true,
         capabilities: {
           family: "claude-opus-4.7",
+          object: "model_capabilities",
+          tokenizer: "o200k_base",
+          type: "chat",
+          limits: {},
+          supports: { tool_calls: true },
+        },
+      },
+      {
+        id: "claude-opus-4.7-high",
+        name: "Claude Opus 4.7 High",
+        object: "model",
+        vendor: "Anthropic",
+        version: "1",
+        preview: false,
+        model_picker_enabled: true,
+        capabilities: {
+          family: "claude-opus-4.7",
+          object: "model_capabilities",
+          tokenizer: "o200k_base",
+          type: "chat",
+          limits: {},
+          supports: { tool_calls: true },
+        },
+      },
+      {
+        id: "claude-opus-4.7-xhigh",
+        name: "Claude Opus 4.7 XHigh",
+        object: "model",
+        vendor: "Anthropic",
+        version: "1",
+        preview: false,
+        model_picker_enabled: true,
+        capabilities: {
+          family: "claude-opus-4.7",
+          object: "model_capabilities",
+          tokenizer: "o200k_base",
+          type: "chat",
+          limits: {},
+          supports: { tool_calls: true },
+        },
+      },
+      {
+        id: "claude-opus-4.7-1m-internal",
+        name: "Claude Opus 4.7 1M",
+        object: "model",
+        vendor: "Anthropic",
+        version: "1",
+        preview: false,
+        model_picker_enabled: true,
+        capabilities: {
+          family: "claude-opus-4.7-1m-internal",
           object: "model_capabilities",
           tokenizer: "o200k_base",
           type: "chat",
@@ -139,13 +189,27 @@ const buildApp = (
 }
 
 let restore: () => void = () => {}
+let isolatedHome: string | undefined
 const originalHome = process.env.HOME
 const originalModelReasoningEffort = process.env.MODEL_REASONING_EFFORT
 const originalCopilotReasoningEffort = process.env.COPILOT_REASONING_EFFORT
 
-afterEach(() => {
+beforeEach(async () => {
+  delete process.env.MODEL_REASONING_EFFORT
+  delete process.env.COPILOT_REASONING_EFFORT
+  isolatedHome = await mkdtemp(path.join(os.tmpdir(), "claude-empty-home-"))
+  await mkdir(path.join(isolatedHome, ".claude"), { recursive: true })
+  await writeFile(path.join(isolatedHome, ".claude", "settings.json"), "{}\n")
+  process.env.HOME = isolatedHome
+})
+
+afterEach(async () => {
   restore()
   restore = () => {}
+  if (isolatedHome) {
+    await rm(isolatedHome, { recursive: true, force: true })
+    isolatedHome = undefined
+  }
   if (originalHome === undefined) {
     delete process.env.HOME
   } else {
@@ -665,6 +729,269 @@ describe("/v1/messages route", () => {
     expect((captured[0].body as { model: string }).model).toBe(
       "claude-sonnet-4.6",
     )
+  })
+
+  test("supports Claude opus 4.7 variant ids from Claude CLI", async () => {
+    for (const [requestedModel, requestedEffort, expectedModel, expectedEffort] of [
+      ["claude-opus-4.7", "high", "claude-opus-4.7-high", "high"],
+      ["claude-opus-4.7", "xhigh", "claude-opus-4.7-xhigh", "xhigh"],
+      ["claude-opus-4.7", "max", "claude-opus-4.7-xhigh", "xhigh"],
+      ["claude-opus-4.7-high", "xhigh", "claude-opus-4.7-high", "high"],
+      ["claude-opus-4.7-xhigh", "max", "claude-opus-4.7-xhigh", "xhigh"],
+      ["claude-opus-4.7-1m", "max", "claude-opus-4.7-1m-internal", "xhigh"],
+      ["opus-4.7-high", "high", "claude-opus-4.7-high", "high"],
+      ["claude-opus-4-7-high", "low", "claude-opus-4.7-high", "high"],
+    ] as const) {
+      const captured: Array<CapturedRequest> = []
+      const upstream = new Response(
+        JSON.stringify({
+          id: `chatcmpl-${expectedModel}`,
+          created: 1700000000,
+          model: expectedModel,
+          choices: [
+            {
+              index: 0,
+              message: { role: "assistant", content: "OK" },
+              finish_reason: "stop",
+            },
+          ],
+          usage: { prompt_tokens: 9, completion_tokens: 2, total_tokens: 11 },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      )
+
+      const { app, restore: r } = buildApp(captured, upstream)
+      restore = r
+
+      const res = await app.request("/v1/messages", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          model: requestedModel,
+          max_tokens: 1024,
+          messages: [{ role: "user", content: "Reply with OK" }],
+          reasoning_effort: requestedEffort,
+        }),
+      })
+
+      expect(res.status).toBe(200)
+      expect(captured).toHaveLength(1)
+      expect(
+        (captured[0].body as { model: string; output_config?: { effort?: string } }).model,
+      ).toBe(expectedModel)
+      expect(
+        (captured[0].body as { output_config?: { effort?: string } })
+          .output_config,
+      ).toEqual({ effort: expectedEffort })
+      expect(
+        (captured[0].body as { reasoning_effort?: string }).reasoning_effort,
+      ).toBeUndefined()
+    }
+  })
+
+  test("routes Claude settings opus 4.7 reasoning effort to matching variants", async () => {
+    for (const [configuredEffort, expectedModel, expectedEffort] of [
+      ["medium", "claude-opus-4.7", "medium"],
+      ["high", "claude-opus-4.7-high", "high"],
+      ["xhigh", "claude-opus-4.7-xhigh", "xhigh"],
+      ["max", "claude-opus-4.7-xhigh", "xhigh"],
+    ] as const) {
+      const tempHome = await mkdtemp(path.join(os.tmpdir(), "claude-settings-opus47-"))
+      process.env.HOME = tempHome
+      await mkdir(path.join(tempHome, ".claude"), { recursive: true })
+      await writeFile(
+        path.join(tempHome, ".claude", "settings.json"),
+        JSON.stringify(
+          {
+            env: {
+              ANTHROPIC_MODEL: "claude-opus-4.7",
+              MODEL_REASONING_EFFORT: configuredEffort,
+            },
+          },
+          null,
+          2,
+        ),
+      )
+
+      try {
+        const captured: Array<CapturedRequest> = []
+        const upstream = new Response(
+          JSON.stringify({
+            id: `chatcmpl-settings-${configuredEffort}`,
+            created: 1700000000,
+            model: expectedModel,
+            choices: [
+              {
+                index: 0,
+                message: { role: "assistant", content: "OK" },
+                finish_reason: "stop",
+              },
+            ],
+            usage: { prompt_tokens: 9, completion_tokens: 2, total_tokens: 11 },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        )
+
+        const { app, restore: r } = buildApp(captured, upstream)
+        restore = r
+
+        const res = await app.request("/v1/messages", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            model: "definitely-not-a-real-model",
+            max_tokens: 1024,
+            messages: [{ role: "user", content: "Reply with OK" }],
+          }),
+        })
+
+        expect(res.status).toBe(200)
+        expect(
+          (captured[0].body as { model: string; output_config?: { effort?: string } }).model,
+        ).toBe(expectedModel)
+        expect(
+          (captured[0].body as { output_config?: { effort?: string } })
+            .output_config,
+        ).toEqual({ effort: expectedEffort })
+      } finally {
+        await rm(tempHome, { recursive: true, force: true })
+      }
+    }
+  })
+
+  test("routes Claude settings opus 4.7 1M reasoning effort to the 1M upstream model", async () => {
+    for (const [configuredEffort, expectedEffort] of [
+      ["low", "low"],
+      ["medium", "medium"],
+      ["high", "high"],
+      ["xhigh", "xhigh"],
+      ["max", "xhigh"],
+    ] as const) {
+      const tempHome = await mkdtemp(path.join(os.tmpdir(), "claude-settings-opus47-1m-"))
+      process.env.HOME = tempHome
+      await mkdir(path.join(tempHome, ".claude"), { recursive: true })
+      await writeFile(
+        path.join(tempHome, ".claude", "settings.json"),
+        JSON.stringify(
+          {
+            env: {
+              ANTHROPIC_MODEL: "claude-opus-4.7-1m",
+              MODEL_REASONING_EFFORT: configuredEffort,
+            },
+          },
+          null,
+          2,
+        ),
+      )
+
+      try {
+        const captured: Array<CapturedRequest> = []
+        const upstream = new Response(
+          JSON.stringify({
+            id: `chatcmpl-settings-1m-${configuredEffort}`,
+            created: 1700000000,
+            model: "claude-opus-4.7-1m-internal",
+            choices: [
+              {
+                index: 0,
+                message: { role: "assistant", content: "OK" },
+                finish_reason: "stop",
+              },
+            ],
+            usage: { prompt_tokens: 9, completion_tokens: 2, total_tokens: 11 },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        )
+
+        const { app, restore: r } = buildApp(captured, upstream)
+        restore = r
+
+        const res = await app.request("/v1/messages", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            model: "definitely-not-a-real-model",
+            max_tokens: 1024,
+            messages: [{ role: "user", content: "Reply with OK" }],
+          }),
+        })
+
+        expect(res.status).toBe(200)
+        expect(
+          (captured[0].body as { model: string; output_config?: { effort?: string } }).model,
+        ).toBe("claude-opus-4.7-1m-internal")
+        expect(
+          (captured[0].body as { output_config?: { effort?: string } })
+            .output_config,
+        ).toEqual({ effort: expectedEffort })
+      } finally {
+        await rm(tempHome, { recursive: true, force: true })
+      }
+    }
+  })
+
+  test("lets Claude settings override Claude CLI thinking-derived opus 4.7 effort", async () => {
+    const tempHome = await mkdtemp(path.join(os.tmpdir(), "claude-settings-opus47-thinking-"))
+    process.env.HOME = tempHome
+    await mkdir(path.join(tempHome, ".claude"), { recursive: true })
+    await writeFile(
+      path.join(tempHome, ".claude", "settings.json"),
+      JSON.stringify(
+        {
+          env: {
+            ANTHROPIC_MODEL: "claude-opus-4.7-1m",
+            MODEL_REASONING_EFFORT: "low",
+          },
+        },
+        null,
+        2,
+      ),
+    )
+
+    try {
+      const captured: Array<CapturedRequest> = []
+      const upstream = new Response(
+        JSON.stringify({
+          id: "chatcmpl-settings-thinking",
+          created: 1700000000,
+          model: "claude-opus-4.7-1m-internal",
+          choices: [
+            {
+              index: 0,
+              message: { role: "assistant", content: "OK" },
+              finish_reason: "stop",
+            },
+          ],
+          usage: { prompt_tokens: 9, completion_tokens: 2, total_tokens: 11 },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      )
+
+      const { app, restore: r } = buildApp(captured, upstream)
+      restore = r
+
+      const res = await app.request("/v1/messages", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          model: "claude-opus-4.7-1m",
+          max_tokens: 1024,
+          messages: [{ role: "user", content: "Reply with OK" }],
+          thinking: { type: "enabled", budget_tokens: 30_000 },
+        }),
+      })
+
+      expect(res.status).toBe(200)
+      expect(
+        (captured[0].body as { model: string; output_config?: { effort?: string } }).model,
+      ).toBe("claude-opus-4.7-1m-internal")
+      expect(
+        (captured[0].body as { output_config?: { effort?: string } })
+          .output_config,
+      ).toEqual({ effort: "low" })
+    } finally {
+      await rm(tempHome, { recursive: true, force: true })
+    }
   })
 
   test("maps Claude client opus alias to the default upstream opus model", async () => {

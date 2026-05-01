@@ -165,11 +165,18 @@ const getRequestedClaudeOpus47Effort = (
     claudeSettingsEnv,
   )
 
-  return (
-    payload.output_config?.effort
-    ?? normalizeClaudeOpus47Effort(payload.reasoning_effort)
+  const requested =
+    normalizeClaudeOpus47Effort(payload.reasoning_effort)
     ?? normalizeClaudeOpus47Effort(configuredReasoningEffort)
-  )
+    ?? payload.output_config?.effort
+
+  if (!requested) {
+    return undefined
+  }
+
+  return clampReasoningEffort(payload.model, requested)?.effort as
+    | ClaudeOpus47Effort
+    | undefined
 }
 
 export const sanitizeUserIdentifier = (
