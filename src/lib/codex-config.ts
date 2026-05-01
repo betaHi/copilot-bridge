@@ -17,8 +17,6 @@ const LEGACY_END_MARK = "# <<< copilot-bridge managed (do not edit) <<<"
 // We never put these in our managed block to avoid TOML duplicate-key errors.
 const USER_OWNED_SCALARS = ["model", "model_reasoning_effort"] as const
 type UserScalar = (typeof USER_OWNED_SCALARS)[number]
-const USER_OWNED_BOOLEANS = ["model_supports_reasoning_summaries"] as const
-type UserBoolean = (typeof USER_OWNED_BOOLEANS)[number]
 
 interface ApplyCodexConfigInput {
   baseUrl: string
@@ -40,6 +38,27 @@ export interface CodexUserConfig {
   modelReasoningEffort?: string
 }
 
+export function normalizeCodexConfigReasoningEffort(
+  value: string | undefined,
+): string | undefined {
+  switch (value?.toLowerCase()) {
+    case "none":
+    case "minimal":
+    case "low":
+    case "medium":
+    case "high":
+    case "xhigh": {
+      return value.toLowerCase()
+    }
+    case "max": {
+      return "xhigh"
+    }
+    default: {
+      return undefined
+    }
+  }
+}
+
 function tomlEscape(value: string): string {
   return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')
 }
@@ -51,6 +70,7 @@ function buildManagedBlock(input: ApplyCodexConfigInput): string {
   if (settings.setAsDefault) {
     lines.push(`model_provider = "${tomlEscape(settings.providerId)}"`)
   }
+  lines.push("model_supports_reasoning_summaries = true")
   lines.push("")
   lines.push(`[model_providers.${settings.providerId}]`)
   lines.push(`name = "${tomlEscape(settings.providerName)}"`)
@@ -138,20 +158,27 @@ function setTopScalar(
   return `${line}\n${topSection.startsWith("\n") ? "" : ""}${topSection}`
 }
 
-function setTopBoolean(
-  topSection: string,
-  key: UserBoolean,
-  value: boolean | undefined,
-): string {
-  if (value === undefined) return topSection
+function removeTopKey(topSection: string, key: string): string {
+  const lines = topSection.split("\n")
+  const re = new RegExp(`^\\s*${key}\\s*=`)
+  return lines.filter((line) => !re.test(line)).join("\n")
+}
 
-  const re = new RegExp(`^\\s*${key}\\s*=\\s*(true|false)\\s*$`, "m")
-  const line = `${key} = ${value ? "true" : "false"}`
-  if (re.test(topSection)) {
-    return topSection.replace(re, line)
+function sanitizeTopReasoningEffort(topSection: string): string {
+  const match = topSection.match(scalarRegex("model_reasoning_effort"))
+  if (!match) return topSection
+
+  const normalized = normalizeCodexConfigReasoningEffort(match[1])
+  if (!normalized) {
+    return removeTopKey(topSection, "model_reasoning_effort")
   }
-  if (topSection.length === 0) return `${line}\n`
-  return `${line}\n${topSection.startsWith("\n") ? "" : ""}${topSection}`
+  if (normalized === match[1]) {
+    return topSection
+  }
+  return topSection.replace(
+    scalarRegex("model_reasoning_effort"),
+    `model_reasoning_effort = "${tomlEscape(normalized)}"`,
+  )
 }
 
 function applyUserScalars(
@@ -159,17 +186,13 @@ function applyUserScalars(
   input: ApplyCodexConfigInput,
 ): string {
   const { top, rest } = splitTopSection(content)
-  let nextTop = top
+  let nextTop = removeTopKey(top, "model_supports_reasoning_summaries")
+  nextTop = sanitizeTopReasoningEffort(nextTop)
   nextTop = setTopScalar(nextTop, "model", input.model)
   nextTop = setTopScalar(
     nextTop,
     "model_reasoning_effort",
-    input.modelReasoningEffort,
-  )
-  nextTop = setTopBoolean(
-    nextTop,
-    "model_supports_reasoning_summaries",
-    input.modelReasoningEffort === undefined ? undefined : true,
+    normalizeCodexConfigReasoningEffort(input.modelReasoningEffort),
   )
   if (nextTop === top) return content
   if (rest.length === 0) {

@@ -60,12 +60,15 @@ const routeClaudeOpus47ByReasoningEffort = (
 
 export const normalizeCodexResponsesRequest = (
   payload: CodexResponsesRequest,
+  configuredReasoningEffort?: unknown,
 ): CodexResponsesRequest => {
   const parsed = codexResponsesRequestSchema.parse(payload) as CodexResponsesRequest
     & { reasoning?: ReasoningField; text?: TextField }
 
+  const incomingReasoning =
+    isPlainObject(parsed.reasoning) ? (parsed.reasoning as ReasoningField) : undefined
   const requestedReasoningEffort =
-    isPlainObject(parsed.reasoning) ? parsed.reasoning.effort : undefined
+    incomingReasoning?.effort ?? configuredReasoningEffort
   const canonical = routeClaudeOpus47ByReasoningEffort(
     resolveModelId(parsed.model),
     requestedReasoningEffort,
@@ -84,10 +87,18 @@ export const normalizeCodexResponsesRequest = (
 
   if ("reasoning" in next) {
     if (!isPlainObject(next.reasoning)) {
-      delete (next as Record<string, unknown>).reasoning
+      if (configuredReasoningEffort === undefined || configuredReasoningEffort === null) {
+        delete (next as Record<string, unknown>).reasoning
+      } else {
+        const clamped = clampReasoningEffort(canonical, configuredReasoningEffort)
+        if (clamped) {
+          next.reasoning = { effort: clamped.effort }
+        }
+      }
     } else {
       const incoming = next.reasoning as ReasoningField
-      if (incoming.effort === undefined || incoming.effort === null) {
+      const effort = incoming.effort ?? configuredReasoningEffort
+      if (effort === undefined || effort === null) {
         const reasoning = removeReasoningEffort(incoming)
         if (reasoning) {
           next.reasoning = reasoning
@@ -95,11 +106,16 @@ export const normalizeCodexResponsesRequest = (
           delete (next as Record<string, unknown>).reasoning
         }
       } else {
-        const clamped = clampReasoningEffort(canonical, incoming.effort)
+        const clamped = clampReasoningEffort(canonical, effort)
         if (clamped) {
           next.reasoning = { ...incoming, effort: clamped.effort }
         }
       }
+    }
+  } else if (configuredReasoningEffort !== undefined && configuredReasoningEffort !== null) {
+    const clamped = clampReasoningEffort(canonical, configuredReasoningEffort)
+    if (clamped) {
+      next.reasoning = { effort: clamped.effort }
     }
   }
 

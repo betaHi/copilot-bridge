@@ -1,7 +1,7 @@
 <h1 align="center">copilot-bridge</h1>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/betahi-copilot-bridge"><img src="https://img.shields.io/npm/v/betahi-copilot-bridge.svg?v=0.19.0" alt="npm version"></a>
+  <a href="https://www.npmjs.com/package/betahi-copilot-bridge"><img src="https://img.shields.io/npm/v/betahi-copilot-bridge.svg?v=0.20.0" alt="npm version"></a>
   <a href="https://github.com/betahi/copilot-bridge/blob/main/LICENSE"><img src="https://img.shields.io/npm/l/betahi-copilot-bridge.svg" alt="license"></a>
 </p>
 
@@ -83,6 +83,7 @@ this block; the bridge regenerates it on every start.
 ```toml
 # >>> copilot-bridge managed block — auto-generated, do not edit between markers >>>
 model_provider = "bridge"
+model_supports_reasoning_summaries = true
 
 [model_providers.bridge]
 name = "Copilot Bridge"
@@ -100,22 +101,7 @@ these keys across rewrites:
 ```toml
 model = "gpt-5.3-codex"
 model_reasoning_effort = "high"
-model_supports_reasoning_summaries = true
 ```
-
-If `model_reasoning_effort` is omitted, the bridge leaves it unset and does not
-send a reasoning effort for Codex requests (a startup info log also reminds you).
-Codex requires `model_supports_reasoning_summaries = true` for custom providers
-to serialize the `reasoning` object; `start --select-model` writes it for you
-when it writes `model_reasoning_effort`.
-
-`model_reasoning_effort` only affects Codex requests; it does not affect Claude.
-
-For Claude Opus 4.7 through Codex, you can keep `model = "claude-opus-4.7"`
-and set `model_reasoning_effort = "high"` or `"xhigh"`; the bridge routes the
-request to the matching Opus 4.7 reasoning variant upstream. Use
-`model = "claude-opus-4.7-1m"` for the 1M context window; it maps to the upstream
-1M model without exposing the upstream-only suffix in your config.
 
 That's it — `codex exec '...'` will now route through the bridge to Copilot.
 
@@ -173,11 +159,6 @@ project-local `.claude/settings.json` and `.claude/settings.local.json` and
 applied to Claude requests only when the model supports reasoning. If it is not
 configured, Claude requests do not infer or attach a reasoning effort.
 
-For compatibility, `ANTHROPIC_MODEL=claude-opus-4.7` plus
-`MODEL_REASONING_EFFORT=high` or `xhigh` is automatically routed to the matching
-Opus 4.7 reasoning variant upstream, so existing settings keep the intended
-reasoning level.
-
 ## Environment overrides
 
 | Variable                   | Purpose                                              |
@@ -222,6 +203,10 @@ accepts upstream.
 | `claude-sonnet-4.5`              | —                                       | Reasoning not accepted upstream.       |
 | `claude-sonnet-4`                | —                                       | Reasoning not accepted upstream.       |
 | `claude-haiku-4.5`               | —                                       | Reasoning not accepted upstream.       |
+
+For Claude Opus 4.7, both Codex CLI and Claude Code can use
+`claude-opus-4.7` with reasoning effort `high` or `xhigh`; the bridge routes the
+request to the matching upstream reasoning variant.
 
 ### Gemini family — translated to chat completions
 

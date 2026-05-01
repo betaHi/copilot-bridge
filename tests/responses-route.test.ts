@@ -1,3 +1,7 @@
+import { mkdtemp, writeFile } from "node:fs/promises"
+import os from "node:os"
+import path from "node:path"
+
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 
 import type { BridgeConfig, BridgeEnv } from "~/lib/config"
@@ -60,10 +64,16 @@ const buildApp = (
 }
 
 let restore: () => void = () => {}
+const originalCodexConfigPath = process.env.CODEX_CONFIG_PATH
 
 afterEach(() => {
   restore()
   restore = () => {}
+  if (originalCodexConfigPath === undefined) {
+    delete process.env.CODEX_CONFIG_PATH
+  } else {
+    process.env.CODEX_CONFIG_PATH = originalCodexConfigPath
+  }
 })
 
 describe("/v1/responses route — passthrough vs translation contract", () => {
@@ -90,6 +100,40 @@ describe("/v1/responses route — passthrough vs translation contract", () => {
     expect(captured).toHaveLength(1)
     expect(captured[0].url).toBe("https://upstream.test/responses")
     expect((captured[0].body as { model: string }).model).toBe("gpt-5.3-codex")
+  })
+
+  test("injects Codex config reasoning effort when Codex omits reasoning", async () => {
+    const configDir = await mkdtemp(path.join(os.tmpdir(), "codex-route-cfg-"))
+    process.env.CODEX_CONFIG_PATH = path.join(configDir, "config.toml")
+    await writeFile(
+      process.env.CODEX_CONFIG_PATH,
+      `model = "gpt-5-mini"
+model_reasoning_effort = "high"
+`,
+    )
+
+    const captured: Array<CapturedRequest> = []
+    const upstream = new Response('{"id":"resp_1","object":"response"}', {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    })
+    const { app, restore: r } = buildApp(captured, upstream)
+    restore = r
+
+    const res = await app.request("/v1/responses", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "gpt-5-mini",
+        input: "ping",
+        stream: false,
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    expect(
+      (captured[0].body as { reasoning?: { effort?: string } }).reasoning?.effort,
+    ).toBe("high")
   })
 
   test("chat-completions routes responses-only GPT models directly to /responses", async () => {

@@ -60,6 +60,44 @@ describe("codex /v1/responses request normalizer", () => {
     expect(out.reasoning).toBeUndefined()
   })
 
+  test("injects configured Codex reasoning effort when request omits it", () => {
+    const out = normalizeCodexResponsesRequest(
+      {
+        model: "gpt-5.4",
+        input: "hello",
+      } as never,
+      "high",
+    ) as { reasoning?: { effort?: string } }
+
+    expect(out.reasoning?.effort).toBe("high")
+  })
+
+  test("preserves reasoning metadata while injecting configured effort", () => {
+    const out = normalizeCodexResponsesRequest(
+      {
+        model: "gpt-5.2",
+        reasoning: { summary: "auto" },
+      } as never,
+      "medium",
+    ) as { reasoning?: { effort?: string; summary?: string } }
+
+    expect(out.reasoning?.effort).toBe("medium")
+    expect(out.reasoning?.summary).toBe("auto")
+  })
+
+  test("routes configured Claude opus 4.7 Codex effort to variant", () => {
+    const out = normalizeCodexResponsesRequest(
+      {
+        model: "claude-opus-4.7",
+        input: "hello",
+      } as never,
+      "high",
+    ) as { model: string; reasoning?: { effort?: string } }
+
+    expect(out.model).toBe("claude-opus-4.7-high")
+    expect(out.reasoning?.effort).toBe("high")
+  })
+
   test("preserves reasoning metadata without adding effort when effort is omitted", () => {
     const out = normalizeCodexResponsesRequest({
       model: "gpt-5.4",

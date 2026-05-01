@@ -10,6 +10,11 @@ import {
 import { normalizeResponsesSseStream } from "~/bridges/codex/normalize-stream"
 import { normalizeCodexResponsesRequest } from "~/bridges/codex/responses"
 import type { BridgeEnv } from "~/lib/config"
+import {
+  normalizeCodexConfigReasoningEffort,
+  readCodexUserConfigFromDisk,
+} from "~/lib/codex-config"
+import { CODEX_DEFAULTS } from "~/lib/defaults"
 import { BridgeNotImplementedError } from "~/lib/error"
 import { getModelCapability } from "~/lib/model-capabilities"
 import { checkRateLimit, RateLimitError } from "~/lib/rate-limit"
@@ -80,6 +85,12 @@ const logResponsesUpstreamError = async (
   })
 }
 
+const readConfiguredCodexReasoningEffort = async (): Promise<string | undefined> => {
+  const configPath = process.env.CODEX_CONFIG_PATH ?? CODEX_DEFAULTS.configPath
+  const config = await readCodexUserConfigFromDisk(configPath)
+  return normalizeCodexConfigReasoningEffort(config.modelReasoningEffort)
+}
+
 responsesRoutes.post("/", async (c) => {
   try {
     await checkRateLimit()
@@ -90,8 +101,10 @@ responsesRoutes.post("/", async (c) => {
     throw error
   }
   const rawPayload = (await c.req.json()) as ResponsesRequestLike
+  const configuredReasoningEffort = await readConfiguredCodexReasoningEffort()
   const payload = normalizeCodexResponsesRequest(
     rawPayload as unknown as Parameters<typeof normalizeCodexResponsesRequest>[0],
+    configuredReasoningEffort,
   ) as unknown as ResponsesRequestLike
   const config = c.get("config")
   const provider = getCopilotProviderContext(config)

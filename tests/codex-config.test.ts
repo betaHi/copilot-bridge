@@ -75,6 +75,7 @@ describe("applyCodexConfig", () => {
     expect(r.changed).toBe(true)
     const content = await readFile(p, "utf8")
     expect(content).toContain('model_provider = "bridge"')
+    expect(content).toContain("model_supports_reasoning_summaries = true")
     expect(content).toContain("[model_providers.bridge]")
     expect(content).toContain("prefer_websockets = false")
     // model is NOT inside the managed block anymore
@@ -95,12 +96,18 @@ describe("applyCodexConfig", () => {
     const content = await readFile(p, "utf8")
     expect(content).toMatch(/^model = "claude-opus-4\.7"$/m)
     expect(content).toMatch(/^model_reasoning_effort = "high"$/m)
-    expect(content).toMatch(/^model_supports_reasoning_summaries = true$/m)
     const managedStart = content.indexOf(">>> copilot-bridge managed")
+    const managedEnd = content.indexOf("<<< copilot-bridge managed")
     expect(content.slice(0, managedStart)).toContain('model = "claude-opus-4.7"')
+    expect(content.slice(0, managedStart)).not.toContain(
+      "model_supports_reasoning_summaries",
+    )
+    expect(content.slice(managedStart, managedEnd)).toContain(
+      "model_supports_reasoning_summaries = true",
+    )
   })
 
-  test("updates Codex reasoning metadata switch when writing effort", async () => {
+  test("moves Codex reasoning metadata switch into the managed block", async () => {
     const p = await makeConfigPath()
     await writeFile(
       p,
@@ -117,6 +124,10 @@ model_supports_reasoning_summaries = false
     const content = await readFile(p, "utf8")
     expect(content).toMatch(/^model_reasoning_effort = "low"$/m)
     expect(content).toMatch(/^model_supports_reasoning_summaries = true$/m)
+    const managedStart = content.indexOf(">>> copilot-bridge managed")
+    expect(content.slice(0, managedStart)).not.toContain(
+      "model_supports_reasoning_summaries",
+    )
     expect(content.match(/^model_supports_reasoning_summaries = /gm)).toHaveLength(1)
   })
 
@@ -125,7 +136,7 @@ model_supports_reasoning_summaries = false
     await writeFile(
       p,
       `model = "user-pinned"
-model_reasoning_effort = "max"
+model_reasoning_effort = "high"
 
 [history]
 persistence = "save-all"
@@ -139,10 +150,45 @@ persistence = "save-all"
     })
     const content = await readFile(p, "utf8")
     expect(content).toMatch(/^model = "user-pinned"$/m)
-    expect(content).toMatch(/^model_reasoning_effort = "max"$/m)
+    expect(content).toMatch(/^model_reasoning_effort = "high"$/m)
     expect(content).toContain("[history]")
     expect(content).toContain('persistence = "save-all"')
     expect(content).toContain("model_provider = \"bridge\"")
+  })
+
+  test("sanitizes Codex CLI-invalid reasoning efforts", async () => {
+    const p = await makeConfigPath()
+    await writeFile(
+      p,
+      `model = "user-pinned"
+model_reasoning_effort = "banana"
+`,
+    )
+    await applyCodexConfig({
+      configPath: p,
+      baseUrl: "http://127.0.0.1:4242/v1",
+      settings: baseSettings,
+    })
+    const content = await readFile(p, "utf8")
+    expect(content).toMatch(/^model = "user-pinned"$/m)
+    expect(content).not.toMatch(/^model_reasoning_effort = /m)
+  })
+
+  test("maps max reasoning effort to Codex CLI xhigh", async () => {
+    const p = await makeConfigPath()
+    await writeFile(
+      p,
+      `model = "user-pinned"
+model_reasoning_effort = "max"
+`,
+    )
+    await applyCodexConfig({
+      configPath: p,
+      baseUrl: "http://127.0.0.1:4242/v1",
+      settings: baseSettings,
+    })
+    const content = await readFile(p, "utf8")
+    expect(content).toMatch(/^model_reasoning_effort = "xhigh"$/m)
   })
 
   test("idempotent — running twice with same input does not change file", async () => {
