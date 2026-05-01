@@ -59,9 +59,15 @@ of returning HTTP 429 when the window has not elapsed.
 ## Configure Codex CLI
 
 `start` writes a managed block into **`~/.codex/config.toml`**. You don't edit
-this block; the bridge regenerates it on every start.
+between the markers; the bridge regenerates that block on every start. To pin
+the **default model** for `codex` (without passing `-m` every time), add your
+top-level keys above the managed block:
 
 ```toml
+# User defaults; edit these freely.
+model = "gpt-5.3-codex"
+model_reasoning_effort = "high"
+
 # >>> copilot-bridge managed block — auto-generated, do not edit between markers >>>
 model_provider = "bridge"
 model_supports_reasoning_summaries = true
@@ -75,19 +81,8 @@ requires_openai_auth = false
 # <<< copilot-bridge managed block — edits outside this block are preserved <<<
 ```
 
-To pin the **default model** for `codex` (without passing `-m` every time),
-edit the **top of the same file** — outside the markers. The bridge preserves
-these keys across rewrites:
-
-```toml
-model = "gpt-5.3-codex"
-model_reasoning_effort = "high"
-```
-
-That's it — `codex exec '...'` will now route through the bridge to Copilot.
-
-Use `--no-codex-setup` to skip the managed-block writer entirely (e.g. if you
-manage `~/.codex/config.toml` yourself).
+Use `--no-codex-setup` to skip this writer if you manage
+`~/.codex/config.toml` yourself.
 
 ### Codex warning: "Model metadata ... not found"
 
