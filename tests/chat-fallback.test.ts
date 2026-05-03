@@ -218,6 +218,56 @@ describe("chat-fallback: non-stream response translation", () => {
       expect(fc.arguments).toBe('{"cmd":"ls"}')
     }
   })
+
+  test("reasoning_text translates to a reasoning output item", () => {
+    const out = chatResponseToResponsesJson(
+      { model: "gemini-3.1-pro-preview", input: "x" },
+      {
+        choices: [
+          {
+            message: {
+              role: "assistant",
+              content: "OK",
+              reasoning_text: "visible thinking",
+            },
+          },
+        ],
+      },
+    )
+
+    expect(out.output).toHaveLength(2)
+    const reasoning = out.output[0]
+    expect(reasoning).toEqual({
+      id: expect.stringMatching(/^rs_/),
+      type: "reasoning",
+      status: "completed",
+      summary: [{ type: "summary_text", text: "visible thinking" }],
+    })
+    expect(out.output[1]?.type).toBe("message")
+  })
+
+  test("null or empty reasoning fields do not create reasoning output items", () => {
+    for (const reasoningValue of [null, ""] as const) {
+      const out = chatResponseToResponsesJson(
+        { model: "gemini-3.1-pro-preview", input: "x" },
+        {
+          choices: [
+            {
+              message: {
+                role: "assistant",
+                content: "OK",
+                reasoning_text: reasoningValue,
+                reasoning_content: reasoningValue,
+              },
+            },
+          ],
+        },
+      )
+
+      expect(out.output).toHaveLength(1)
+      expect(out.output[0]?.type).toBe("message")
+    }
+  })
 })
 
 describe("chat-fallback: SSE synthesis", () => {
@@ -284,5 +334,50 @@ describe("chat-fallback: SSE synthesis", () => {
     expect(text).toContain("response.function_call_arguments.delta")
     expect(text).toContain("response.function_call_arguments.done")
     expect(text).toContain('"arguments":"{\\"a\\":1}"')
+  })
+
+  test("emits reasoning summary events for reasoning_text", async () => {
+    const stream = synthesizeResponsesSseFromChat(
+      { model: "gemini-3.1-pro-preview", input: "x", stream: true },
+      {
+        choices: [
+          {
+            message: {
+              role: "assistant",
+              content: "OK",
+              reasoning_text: "visible thinking",
+            },
+          },
+        ],
+      },
+    )
+    const text = await collect(stream)
+    expect(text).toContain("response.reasoning_summary_text.delta")
+    expect(text).toContain('"type":"reasoning"')
+    expect(text).toContain('"summary":[{"type":"summary_text","text":"visible thinking"}]')
+  })
+
+  test("does not emit reasoning summary events for null or empty reasoning fields", async () => {
+    for (const reasoningValue of [null, ""] as const) {
+      const stream = synthesizeResponsesSseFromChat(
+        { model: "gemini-3.1-pro-preview", input: "x", stream: true },
+        {
+          choices: [
+            {
+              message: {
+                role: "assistant",
+                content: "OK",
+                reasoning_text: reasoningValue,
+                reasoning_content: reasoningValue,
+              },
+            },
+          ],
+        },
+      )
+      const text = await collect(stream)
+      expect(text).not.toContain("response.reasoning_summary_text.delta")
+      expect(text).not.toContain('"type":"reasoning"')
+      expect(text).toContain('"delta":"OK"')
+    }
   })
 })

@@ -199,6 +199,7 @@ const buildApp = (
 let restore: () => void = () => {}
 let isolatedHome: string | undefined
 const originalHome = process.env.HOME
+const originalCwd = process.cwd()
 const originalModelReasoningEffort = process.env.MODEL_REASONING_EFFORT
 const originalCopilotReasoningEffort = process.env.COPILOT_REASONING_EFFORT
 
@@ -209,12 +210,14 @@ beforeEach(async () => {
   await mkdir(path.join(isolatedHome, ".claude"), { recursive: true })
   await writeFile(path.join(isolatedHome, ".claude", "settings.json"), "{}\n")
   process.env.HOME = isolatedHome
+  process.chdir(isolatedHome)
 })
 
 afterEach(async () => {
   restore()
   restore = () => {}
   delete runtimeState.modelOverride
+  process.chdir(originalCwd)
   if (isolatedHome) {
     await rm(isolatedHome, { recursive: true, force: true })
     isolatedHome = undefined

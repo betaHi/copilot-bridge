@@ -174,6 +174,8 @@ interface ResponsesStreamEnvelope {
     | Partial<ResponsesReasoningOutputItem>
   output_index?: number
   delta?: string
+  text?: string
+  arguments?: string
 }
 
 interface ResponseTranslationState {
@@ -182,6 +184,9 @@ interface ResponseTranslationState {
   model: string
   started: boolean
   reasoningTextSent: boolean
+  outputTextByIndex: Record<number, string>
+  toolArgumentsByIndex: Record<number, string>
+  toolStartedByIndex: Record<number, boolean>
 }
 
 interface CreateChunkOptions {
@@ -276,6 +281,9 @@ export async function* translateResponsesStreamToChatCompletionStream(
     model: "",
     started: false,
     reasoningTextSent: false,
+    outputTextByIndex: {},
+    toolArgumentsByIndex: {},
+    toolStartedByIndex: {},
   }
 
   for await (const rawEvent of responseStream) {
@@ -299,6 +307,13 @@ export async function* translateResponsesStreamToChatCompletionStream(
       continue
     }
 
+    if (event.type === "response.output_item.done") {
+      for (const chunk of handleOutputItemDone(state, event)) {
+        yield chunk
+      }
+      continue
+    }
+
     if (event.type === "response.reasoning_summary_text.delta") {
       if (event.delta) {
         yield createRoleChunk(state)
@@ -309,8 +324,24 @@ export async function* translateResponsesStreamToChatCompletionStream(
     }
 
     if (event.type === "response.output_text.delta") {
+      const outputIndex = event.output_index ?? 0
+      state.outputTextByIndex[outputIndex] = `${state.outputTextByIndex[outputIndex] ?? ""}${event.delta ?? ""}`
       yield createRoleChunk(state)
       yield createChunk(state, { delta: { content: event.delta } })
+      continue
+    }
+
+    if (event.type === "response.output_text.done") {
+      const outputIndex = event.output_index ?? 0
+      const content = getMissingSuffix(
+        state.outputTextByIndex[outputIndex] ?? "",
+        event.text,
+      )
+      if (content) {
+        state.outputTextByIndex[outputIndex] = `${state.outputTextByIndex[outputIndex] ?? ""}${content}`
+        yield createRoleChunk(state)
+        yield createChunk(state, { delta: { content } })
+      }
       continue
     }
 
@@ -319,6 +350,7 @@ export async function* translateResponsesStreamToChatCompletionStream(
         continue
       }
 
+      state.toolArgumentsByIndex[event.output_index] = `${state.toolArgumentsByIndex[event.output_index] ?? ""}${event.delta ?? ""}`
       yield createRoleChunk(state)
       yield createChunk(state, {
         delta: {
@@ -333,6 +365,33 @@ export async function* translateResponsesStreamToChatCompletionStream(
           ],
         },
       })
+      continue
+    }
+
+    if (event.type === "response.function_call_arguments.done") {
+      if (event.output_index === undefined) {
+        continue
+      }
+
+      const content = getMissingSuffix(
+        state.toolArgumentsByIndex[event.output_index] ?? "",
+        event.arguments,
+      )
+      if (content) {
+        state.toolArgumentsByIndex[event.output_index] = `${state.toolArgumentsByIndex[event.output_index] ?? ""}${content}`
+        yield createRoleChunk(state)
+        yield createChunk(state, {
+          delta: {
+            tool_calls: [
+              {
+                index: event.output_index,
+                type: "function",
+                function: { arguments: content },
+              },
+            ],
+          },
+        })
+      }
       continue
     }
 
@@ -400,7 +459,10 @@ function handleOutputItemAdded(
     event.item?.type === "function_call"
     && event.output_index !== undefined
   ) {
+    const initialArguments = event.item.arguments ?? ""
     state.started = true
+    state.toolStartedByIndex[event.output_index] = true
+    state.toolArgumentsByIndex[event.output_index] = initialArguments
     return createChunk(state, {
       delta: {
         role: "assistant",
@@ -411,7 +473,7 @@ function handleOutputItemAdded(
             type: "function",
             function: {
               name: event.item.name,
-              arguments: event.item.arguments ?? "",
+              arguments: initialArguments,
             },
           },
         ],
@@ -420,6 +482,96 @@ function handleOutputItemAdded(
   }
 
   return undefined
+}
+
+function handleOutputItemDone(
+  state: ResponseTranslationState,
+  event: ResponsesStreamEnvelope,
+): Array<ResponseStreamEventMessage> {
+  if (event.item?.type === "reasoning") {
+    const reasoningText = getSummaryText(event.item.summary)
+    if (!reasoningText || state.reasoningTextSent) {
+      return []
+    }
+
+    state.reasoningTextSent = true
+    return [createChunk(state, { delta: { reasoning_text: reasoningText } })]
+  }
+
+  if (event.item?.type === "message") {
+    const outputIndex = event.output_index ?? 0
+    const fullText = getMessageOutputText(event.item.content)
+    const content = getMissingSuffix(
+      state.outputTextByIndex[outputIndex] ?? "",
+      fullText,
+    )
+    if (!content) {
+      return []
+    }
+
+    state.outputTextByIndex[outputIndex] = `${state.outputTextByIndex[outputIndex] ?? ""}${content}`
+    return [createRoleChunk(state), createChunk(state, { delta: { content } })]
+  }
+
+  if (
+    event.item?.type === "function_call"
+    && event.output_index !== undefined
+  ) {
+    const outputIndex = event.output_index
+    const chunks: Array<ResponseStreamEventMessage> = []
+
+    if (!state.toolStartedByIndex[outputIndex]) {
+      const initialArguments = event.item.arguments ?? ""
+      state.started = true
+      state.toolStartedByIndex[outputIndex] = true
+      state.toolArgumentsByIndex[outputIndex] = initialArguments
+      chunks.push(
+        createChunk(state, {
+          delta: {
+            role: "assistant",
+            tool_calls: [
+              {
+                index: outputIndex,
+                id: event.item.call_id,
+                type: "function",
+                function: {
+                  name: event.item.name,
+                  arguments: initialArguments,
+                },
+              },
+            ],
+          },
+        }),
+      )
+      return chunks
+    }
+
+    const content = getMissingSuffix(
+      state.toolArgumentsByIndex[outputIndex] ?? "",
+      event.item.arguments,
+    )
+    if (content) {
+      state.toolArgumentsByIndex[outputIndex] = `${state.toolArgumentsByIndex[outputIndex] ?? ""}${content}`
+      chunks.push(
+        createRoleChunk(state),
+        createChunk(state, {
+          delta: {
+            tool_calls: [
+              {
+                index: outputIndex,
+                type: "function",
+                function: { arguments: content },
+              },
+            ],
+          },
+        }),
+      )
+    }
+
+    return chunks
+  }
+
+  return []
 }
 
 function createRoleChunk(
@@ -617,6 +769,37 @@ function translateUsage(
       },
     }),
   }
+}
+
+function getMessageOutputText(
+  content: ResponsesMessageOutputItem["content"] | undefined,
+): string | undefined {
+  const text = content
+    ?.filter((part) => part.type === "output_text")
+    .map((part) => part.text)
+    .join("")
+
+  return text || undefined
+}
+
+function getMissingSuffix(
+  alreadySent: string,
+  finalValue: string | undefined,
+): string | undefined {
+  if (!finalValue) {
+    return undefined
+  }
+
+  if (!alreadySent) {
+    return finalValue
+  }
+
+  if (!finalValue.startsWith(alreadySent)) {
+    return undefined
+  }
+
+  const suffix = finalValue.slice(alreadySent.length)
+  return suffix || undefined
 }
 
 function getResponsesReasoningText(

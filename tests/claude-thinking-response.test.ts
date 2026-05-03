@@ -83,6 +83,20 @@ const streamChunk = (
   usage: { prompt_tokens: 10, completion_tokens: 4, total_tokens: 14 },
 })
 
+const collectResponseStreamChunks = async (
+  responseEvents: AsyncIterable<{ data: string }>,
+): Promise<Array<ChatCompletionChunk>> => {
+  const chunks: Array<ChatCompletionChunk> = []
+  for await (const rawEvent of translateResponsesStreamToChatCompletionStream(
+    responseEvents,
+  )) {
+    if (!rawEvent.data || rawEvent.data === "[DONE]") continue
+    chunks.push(JSON.parse(rawEvent.data) as ChatCompletionChunk)
+  }
+
+  return chunks
+}
+
 describe("Claude response thinking translation", () => {
   test("preserves non-streaming upstream reasoning for every supported model id and alias", () => {
     for (const model of modelIds) {
@@ -317,5 +331,303 @@ describe("Claude response thinking translation", () => {
       })
       expect(events.at(-1)).toEqual({ type: "message_stop" })
     }
+  })
+
+  test("uses Responses output_text.done as a fallback without duplicating deltas", async () => {
+    async function* responseEvents() {
+      yield {
+        data: JSON.stringify({
+          type: "response.created",
+          response: {
+            id: "resp-output-done",
+            created_at: 1700000000,
+            model: "gpt-5.3-codex",
+          },
+        }),
+      }
+      yield {
+        data: JSON.stringify({
+          type: "response.output_text.delta",
+          output_index: 0,
+          delta: "hello ",
+        }),
+      }
+      yield {
+        data: JSON.stringify({
+          type: "response.output_text.done",
+          output_index: 0,
+          text: "hello world",
+        }),
+      }
+      yield {
+        data: JSON.stringify({
+          type: "response.completed",
+          response: {
+            id: "resp-output-done",
+            created_at: 1700000000,
+            model: "gpt-5.3-codex",
+            output: [],
+          },
+        }),
+      }
+    }
+
+    const chunks = await collectResponseStreamChunks(responseEvents())
+    const contentDeltas = chunks
+      .map((chunk) => chunk.choices[0]?.delta.content)
+      .filter((content): content is string => Boolean(content))
+
+    expect(contentDeltas).toEqual(["hello ", "world"])
+  })
+
+  test("uses Responses output_item.done as a message fallback when text deltas are absent", async () => {
+    async function* responseEvents() {
+      yield {
+        data: JSON.stringify({
+          type: "response.created",
+          response: {
+            id: "resp-item-message-done",
+            created_at: 1700000000,
+            model: "gpt-5.3-codex",
+          },
+        }),
+      }
+      yield {
+        data: JSON.stringify({
+          type: "response.output_item.done",
+          output_index: 0,
+          item: {
+            type: "message",
+            role: "assistant",
+            content: [{ type: "output_text", text: "fallback text" }],
+          },
+        }),
+      }
+      yield {
+        data: JSON.stringify({
+          type: "response.completed",
+          response: {
+            id: "resp-item-message-done",
+            created_at: 1700000000,
+            model: "gpt-5.3-codex",
+            output: [],
+          },
+        }),
+      }
+    }
+
+    const chunks = await collectResponseStreamChunks(responseEvents())
+    const contentDeltas = chunks
+      .map((chunk) => chunk.choices[0]?.delta.content)
+      .filter((content): content is string => Boolean(content))
+
+    expect(contentDeltas).toEqual(["fallback text"])
+  })
+
+  test("uses Responses function_call_arguments.done as a tool argument fallback", async () => {
+    async function* responseEvents() {
+      yield {
+        data: JSON.stringify({
+          type: "response.created",
+          response: {
+            id: "resp-tool-args-done",
+            created_at: 1700000000,
+            model: "gpt-5.3-codex",
+          },
+        }),
+      }
+      yield {
+        data: JSON.stringify({
+          type: "response.output_item.added",
+          output_index: 0,
+          item: {
+            type: "function_call",
+            call_id: "call_1",
+            name: "lookup",
+            arguments: "{\"query\":",
+          },
+        }),
+      }
+      yield {
+        data: JSON.stringify({
+          type: "response.function_call_arguments.delta",
+          output_index: 0,
+          delta: "\"docs\"",
+        }),
+      }
+      yield {
+        data: JSON.stringify({
+          type: "response.function_call_arguments.done",
+          output_index: 0,
+          arguments: "{\"query\":\"docs\"}",
+        }),
+      }
+      yield {
+        data: JSON.stringify({
+          type: "response.completed",
+          response: {
+            id: "resp-tool-args-done",
+            created_at: 1700000000,
+            model: "gpt-5.3-codex",
+            output: [{ type: "function_call", call_id: "call_1", name: "lookup", arguments: "{\"query\":\"docs\"}" }],
+          },
+        }),
+      }
+    }
+
+    const chunks = await collectResponseStreamChunks(responseEvents())
+    const argumentDeltas = chunks
+      .flatMap((chunk) => chunk.choices[0]?.delta.tool_calls ?? [])
+      .map((toolCall) => toolCall.function?.arguments)
+      .filter((args): args is string => args !== undefined)
+
+    expect(argumentDeltas).toEqual(["{\"query\":", "\"docs\"", "}"])
+  })
+
+  test("uses Responses output_item.done as a tool fallback when add/delta events are absent", async () => {
+    async function* responseEvents() {
+      yield {
+        data: JSON.stringify({
+          type: "response.created",
+          response: {
+            id: "resp-tool-item-done",
+            created_at: 1700000000,
+            model: "gpt-5.3-codex",
+          },
+        }),
+      }
+      yield {
+        data: JSON.stringify({
+          type: "response.output_item.done",
+          output_index: 0,
+          item: {
+            type: "function_call",
+            call_id: "call_1",
+            name: "lookup",
+            arguments: "{}",
+          },
+        }),
+      }
+      yield {
+        data: JSON.stringify({
+          type: "response.completed",
+          response: {
+            id: "resp-tool-item-done",
+            created_at: 1700000000,
+            model: "gpt-5.3-codex",
+            output: [{ type: "function_call", call_id: "call_1", name: "lookup", arguments: "{}" }],
+          },
+        }),
+      }
+    }
+
+    const chunks = await collectResponseStreamChunks(responseEvents())
+    const toolCalls = chunks.flatMap(
+      (chunk) => chunk.choices[0]?.delta.tool_calls ?? [],
+    )
+
+    expect(toolCalls).toEqual([
+      {
+        index: 0,
+        id: "call_1",
+        type: "function",
+        function: { name: "lookup", arguments: "{}" },
+      },
+    ])
+  })
+
+  test("uses Responses output_item.done as a reasoning summary fallback", async () => {
+    async function* responseEvents() {
+      yield {
+        data: JSON.stringify({
+          type: "response.created",
+          response: {
+            id: "resp-reasoning-item-done",
+            created_at: 1700000000,
+            model: "gpt-5.3-codex",
+          },
+        }),
+      }
+      yield {
+        data: JSON.stringify({
+          type: "response.output_item.done",
+          output_index: 0,
+          item: {
+            type: "reasoning",
+            summary: [{ type: "summary_text", text: "fallback thinking" }],
+          },
+        }),
+      }
+      yield {
+        data: JSON.stringify({
+          type: "response.completed",
+          response: {
+            id: "resp-reasoning-item-done",
+            created_at: 1700000000,
+            model: "gpt-5.3-codex",
+            output: [],
+          },
+        }),
+      }
+    }
+
+    const chunks = await collectResponseStreamChunks(responseEvents())
+    const reasoningDeltas = chunks
+      .map((chunk) => chunk.choices[0]?.delta.reasoning_text)
+      .filter((reasoning): reasoning is string => Boolean(reasoning))
+
+    expect(reasoningDeltas).toEqual(["fallback thinking"])
+  })
+
+  test("ignores empty or null Responses reasoning summaries", async () => {
+    async function* responseEvents() {
+      yield {
+        data: JSON.stringify({
+          type: "response.created",
+          response: {
+            id: "resp-empty-reasoning",
+            created_at: 1700000000,
+            model: "gpt-5.3-codex",
+          },
+        }),
+      }
+      yield {
+        data: JSON.stringify({
+          type: "response.output_item.done",
+          output_index: 0,
+          item: {
+            type: "reasoning",
+            summary: [
+              { type: "summary_text", text: "" },
+              { type: "summary_text", text: null },
+            ],
+          },
+        }),
+      }
+      yield {
+        data: JSON.stringify({
+          type: "response.completed",
+          response: {
+            id: "resp-empty-reasoning",
+            created_at: 1700000000,
+            model: "gpt-5.3-codex",
+            reasoning: { summary: null },
+            output: [
+              {
+                type: "reasoning",
+                summary: [],
+              },
+            ],
+          },
+        }),
+      }
+    }
+
+    const chunks = await collectResponseStreamChunks(responseEvents())
+    const reasoningDeltas = chunks
+      .map((chunk) => chunk.choices[0]?.delta.reasoning_text)
+      .filter((reasoning): reasoning is string => Boolean(reasoning))
+
+    expect(reasoningDeltas).toEqual([])
   })
 })

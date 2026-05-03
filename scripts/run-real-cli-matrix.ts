@@ -54,6 +54,9 @@ interface TraceRecord {
     model?: unknown
     reasoning_tokens?: unknown
     reasoning_fields?: Array<{ path: string; value: unknown }>
+    event_types?: Array<string>
+    response_keys?: Array<string>
+    item_keys?: Array<string>
     content_type?: string
   }
 }
@@ -70,6 +73,13 @@ interface ClientTraceRecord {
     output_config?: { effort?: unknown }
     thinking?: { type?: unknown; budget_tokens?: unknown }
     stream?: unknown
+  }
+  response: {
+    reasoning_fields?: Array<{ path: string; value: unknown }>
+    event_types?: Array<string>
+    response_keys?: Array<string>
+    item_keys?: Array<string>
+    content_type?: string
   }
 }
 
@@ -102,6 +112,8 @@ const ONLY_EFFORT = process.env.MATRIX_ONLY_EFFORT
 const TIMEOUT_MS = Number(process.env.MATRIX_TIMEOUT_MS ?? "180000")
 const CODEX_COMMAND = process.env.MATRIX_CODEX_BIN ?? "codex"
 const CODEX_REASONING_SUPPORT = process.env.MATRIX_CODEX_REASONING_SUPPORT !== "false"
+const TRACE_CODEX_CLIENT_RESPONSE =
+  process.env.MATRIX_TRACE_CODEX_CLIENT_RESPONSE === "true"
 const PROJECT_CLAUDE_DIR = path.join(WORKSPACE, ".claude")
 const PROJECT_CLAUDE_SETTINGS = path.join(
   PROJECT_CLAUDE_DIR,
@@ -276,6 +288,42 @@ const collectReasoningFields = (
   return fields
 }
 
+const collectSseResponseMetadata = (
+  responseText: string,
+): Pick<TraceRecord["response"], "event_types" | "response_keys" | "item_keys"> => {
+  const eventTypes = new Set<string>()
+  const responseKeys = new Set<string>()
+  const itemKeys = new Set<string>()
+
+  for (const line of responseText.split(/\r?\n/)) {
+    if (!line.startsWith("data:")) continue
+    const data = line.slice("data:".length).trim()
+    if (!data || data === "[DONE]") continue
+    const parsed = asRecord(parseJson(data))
+    if (!parsed) continue
+
+    if (typeof parsed.type === "string") {
+      eventTypes.add(parsed.type)
+    }
+
+    const response = asRecord(parsed.response)
+    if (response) {
+      for (const key of Object.keys(response)) responseKeys.add(key)
+    }
+
+    const item = asRecord(parsed.item)
+    if (item) {
+      for (const key of Object.keys(item)) itemKeys.add(key)
+    }
+  }
+
+  return {
+    event_types: [...eventTypes].sort(),
+    response_keys: [...responseKeys].sort(),
+    item_keys: [...itemKeys].sort(),
+  }
+}
+
 const createTraceProxy = async (tracePath: string) => {
   const records: Array<TraceRecord> = []
   let seq = 0
@@ -302,6 +350,7 @@ const createTraceProxy = async (tracePath: string) => {
       const responseJson = parseJson(responseText)
       const responseRecord = asRecord(responseJson)
       const contentType = upstream.headers.get("content-type") ?? undefined
+      const responseMetadata = collectSseResponseMetadata(responseText)
       const record: TraceRecord = {
         seq: ++seq,
         method: request.method,
@@ -321,6 +370,9 @@ const createTraceProxy = async (tracePath: string) => {
             responseRecord?.model ?? pickResponseModelFromSse(responseText),
           reasoning_tokens: pickReasoningTokens(responseJson),
           reasoning_fields: collectReasoningFields(responseJson, responseText),
+          event_types: responseMetadata.event_types,
+          response_keys: responseMetadata.response_keys,
+          item_keys: responseMetadata.item_keys,
           content_type: contentType,
         },
       }
@@ -346,6 +398,49 @@ const createClientProxy = async (tracePath: string) => {
   const records: Array<ClientTraceRecord> = []
   let seq = 0
 
+  const recordResponse = async (
+    input: {
+      method: string
+      path: string
+      requestJson: Record<string, unknown>
+      responseText: string
+      status: number
+      contentType?: string
+    },
+  ): Promise<void> => {
+    const responseJson = parseJson(input.responseText)
+    const responseMetadata = collectSseResponseMetadata(input.responseText)
+    const record: ClientTraceRecord = {
+      seq: ++seq,
+      method: input.method,
+      path: input.path,
+      status: input.status,
+      request: {
+        model: input.requestJson.model,
+        reasoning_effort: input.requestJson.reasoning_effort,
+        reasoning: asRecord(input.requestJson.reasoning) as
+          | { effort?: unknown }
+          | undefined,
+        output_config: asRecord(input.requestJson.output_config) as
+          | { effort?: unknown }
+          | undefined,
+        thinking: asRecord(input.requestJson.thinking) as
+          | { type?: unknown; budget_tokens?: unknown }
+          | undefined,
+        stream: input.requestJson.stream,
+      },
+      response: {
+        reasoning_fields: collectReasoningFields(responseJson, input.responseText),
+        event_types: responseMetadata.event_types,
+        response_keys: responseMetadata.response_keys,
+        item_keys: responseMetadata.item_keys,
+        content_type: input.contentType,
+      },
+    }
+    records.push(record)
+    await appendFile(tracePath, `${JSON.stringify(record)}\n`)
+  }
+
   const server = Bun.serve({
     hostname: "127.0.0.1",
     port: CLIENT_PROXY_PORT,
@@ -364,33 +459,63 @@ const createClientProxy = async (tracePath: string) => {
         headers,
         body: bodyText ? bodyText : undefined,
       })
-      const responseText = await upstream.text()
-      const record: ClientTraceRecord = {
-        seq: ++seq,
-        method: request.method,
-        path: requestUrl.pathname,
-        status: upstream.status,
-        request: {
-          model: requestJson.model,
-          reasoning_effort: requestJson.reasoning_effort,
-          reasoning: asRecord(requestJson.reasoning) as { effort?: unknown } | undefined,
-          output_config: asRecord(requestJson.output_config) as
-            | { effort?: unknown }
-            | undefined,
-          thinking: asRecord(requestJson.thinking) as
-            | { type?: unknown; budget_tokens?: unknown }
-            | undefined,
-          stream: requestJson.stream,
-        },
-      }
-      records.push(record)
-      await appendFile(tracePath, `${JSON.stringify(record)}\n`)
-
+      const contentType = upstream.headers.get("content-type") ?? undefined
       const responseHeaders = new Headers(upstream.headers)
       responseHeaders.delete("content-encoding")
       responseHeaders.delete("content-length")
       responseHeaders.delete("transfer-encoding")
-      return new Response(responseText, {
+
+      if (!upstream.body) {
+        await recordResponse({
+          method: request.method,
+          path: requestUrl.pathname,
+          requestJson,
+          responseText: "",
+          status: upstream.status,
+          contentType,
+        })
+        return new Response(null, {
+          status: upstream.status,
+          statusText: upstream.statusText,
+          headers: responseHeaders,
+        })
+      }
+
+      const reader = upstream.body.getReader()
+      const decoder = new TextDecoder()
+      let responseText = ""
+      const body = new ReadableStream<Uint8Array>({
+        async pull(controller) {
+          try {
+            const { done, value } = await reader.read()
+            if (done) {
+              responseText += decoder.decode()
+              await recordResponse({
+                method: request.method,
+                path: requestUrl.pathname,
+                requestJson,
+                responseText,
+                status: upstream.status,
+                contentType,
+              })
+              controller.close()
+              return
+            }
+
+            if (value) {
+              responseText += decoder.decode(value, { stream: true })
+              controller.enqueue(value)
+            }
+          } catch (error) {
+            controller.error(error)
+          }
+        },
+        cancel() {
+          void reader.cancel()
+        },
+      })
+
+      return new Response(body, {
         status: upstream.status,
         statusText: upstream.statusText,
         headers: responseHeaders,
@@ -438,6 +563,20 @@ const runProcess = (
       })
     })
   })
+
+const shellQuote = (value: string): string =>
+  `'${value.replaceAll("'", "'\\''")}'`
+
+const runPtyProcess = (
+  command: string,
+  args: Array<string>,
+  options: { cwd?: string; env?: NodeJS.ProcessEnv; timeoutMs?: number } = {},
+): Promise<ProcessResult> =>
+  runProcess(
+    "script",
+    ["-q", "-e", "-c", [command, ...args].map(shellQuote).join(" "), "/dev/null"],
+    options,
+  )
 
 const waitForBridge = async () => {
   const deadline = Date.now() + 120_000
@@ -515,11 +654,11 @@ const runCodexCase = async (
     : ""
   await writeFile(
     path.join(codexHome, "config.toml"),
-    `model = "${testCase.model}"\n${effortLine}${reasoningSupportLine}model_provider = "copilot-bridge"\n\n[model_providers.copilot-bridge]\nname = "copilot-bridge"\nbase_url = "${BRIDGE_BASE_URL}/v1"\nwire_api = "responses"\nprefer_websockets = false\nrequires_openai_auth = false\n`,
+    `model = "${testCase.model}"\n${effortLine}${reasoningSupportLine}model_provider = "copilot-bridge"\n\n[model_providers.copilot-bridge]\nname = "copilot-bridge"\nbase_url = "${TRACE_CODEX_CLIENT_RESPONSE ? CLIENT_BASE_URL : BRIDGE_BASE_URL}/v1"\nwire_api = "responses"\nprefer_websockets = false\nrequires_openai_auth = false\n`,
   )
 
   const outputPath = path.join(workdir, "out.txt")
-  const result = await runProcess(
+  const result = await runPtyProcess(
     CODEX_COMMAND,
     [
       "exec",
@@ -633,6 +772,43 @@ const effortMatches = (testCase: MatrixCase, trace: TraceRecord): boolean => {
   return false
 }
 
+const hasReadableReasoningFields = (
+  fields: Array<{ path: string; value: unknown }> | undefined,
+): boolean =>
+  fields?.some((field) => {
+    if (field.value === null || field.value === "[array:0]") return false
+    const path = field.path.toLowerCase()
+    if (path.includes(".tools[") || path.includes(".parameters")) return false
+    if (path.includes(".usage") || path.includes("summary_index")) return false
+    return path.includes("reasoning_text")
+      || path.includes("reasoning_content")
+      || path.includes("reasoning_summary_text")
+      || path.includes(".item.summary")
+      || path.includes(".output[") && path.includes(".summary")
+      || path.includes(".reasoning.summary")
+  }) ?? false
+
+const hasClaudeThinkingFields = (
+  fields: Array<{ path: string; value: unknown }> | undefined,
+): boolean =>
+  fields?.some((field) => field.path.toLowerCase().includes("thinking")) ?? false
+
+const clientReasoningPreserved = (
+  testCase: MatrixCase,
+  clientTrace: ClientTraceRecord | undefined,
+  trace: TraceRecord | undefined,
+): boolean => {
+  if (!hasReadableReasoningFields(trace?.response.reasoning_fields)) {
+    return true
+  }
+
+  if (testCase.client === "claude") {
+    return hasClaudeThinkingFields(clientTrace?.response.reasoning_fields)
+  }
+
+  return hasReadableReasoningFields(clientTrace?.response.reasoning_fields)
+}
+
 const responseModelMatches = (
   actual: unknown,
   expected: string,
@@ -640,10 +816,27 @@ const responseModelMatches = (
   if (typeof actual !== "string") return false
   if (actual === expected) return true
 
+  if (expected.startsWith("claude-") && actual === claudeDisplayName(expected)) {
+    return true
+  }
+
   const escapedExpected = expected.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-  return new RegExp(`^${escapedExpected}-\\d{4}-\\d{2}-\\d{2}$`).test(
+  return new RegExp(`(?:^|-)${escapedExpected}-\\d{4}-\\d{2}-\\d{2}$`).test(
     actual,
   )
+}
+
+const claudeDisplayName = (model: string): string | undefined => {
+  const match = /^claude-(opus|sonnet|haiku)-(.+)$/.exec(model)
+  if (!match) return undefined
+
+  const family = match[1][0].toUpperCase() + match[1].slice(1)
+  const suffix = match[2]
+    .split("-")
+    .map((part) => part === "1m" ? "1M" : part[0].toUpperCase() + part.slice(1))
+    .join(" ")
+
+  return `Claude ${family} ${suffix}`
 }
 
 const findTrace = (
@@ -674,9 +867,15 @@ const evaluateCase = (
   clientTrace: ClientTraceRecord | undefined,
   trace: TraceRecord | undefined,
 ): CaseResult => {
+  const expectsClientTrace =
+    testCase.client === "claude" || TRACE_CODEX_CLIENT_RESPONSE
   const checks = {
     cli_exit: processResult.code === 0 && !processResult.timedOut,
     cli_output: /^PONG\.?$/i.test(processResult.output.trim()),
+    client_called: !expectsClientTrace || clientTrace !== undefined,
+    client_status:
+      !expectsClientTrace
+      || (clientTrace ? clientTrace.status >= 200 && clientTrace.status <= 299 : false),
     upstream_called: trace !== undefined,
     upstream_status: trace ? trace.status >= 200 && trace.status <= 299 : false,
     upstream_model: trace?.request.model === testCase.upstreamModel,
@@ -685,6 +884,9 @@ const evaluateCase = (
       testCase.upstreamModel,
     ),
     upstream_effort: trace ? effortMatches(testCase, trace) : false,
+    client_reasoning_preserved:
+      !expectsClientTrace
+      || clientReasoningPreserved(testCase, clientTrace, trace),
   }
   const ok = Object.values(checks).every(Boolean)
   const error =
@@ -713,9 +915,11 @@ const printResult = (result: CaseResult): void => {
     ?? trace?.request.reasoning?.effort
     ?? trace?.request.reasoning_effort
     ?? "none"
+  const clientReasoning =
+    clientTrace?.response.reasoning_fields?.map((field) => field.path).join(",") || "-"
   const status = result.ok ? "PASS" : "FAIL"
   console.log(
-    `${status} ${testCase.client.padEnd(6)} ${testCase.model.padEnd(28)} effort=${String(expectedEffort).padEnd(6)} inbound=${String(clientTrace?.path ?? "-").padEnd(13)} upstream=${String(trace?.path ?? "-").padEnd(17)} req_model=${String(trace?.request.model ?? "-").padEnd(32)} req_effort=${String(actualEffort).padEnd(6)} in_effort=${String(clientTrace?.request.reasoning_effort ?? clientTrace?.request.thinking?.budget_tokens ?? clientTrace?.request.reasoning?.effort ?? "none").padEnd(7)} resp_model=${String(trace?.response.model ?? "-").padEnd(28)} resp_reason=${String(trace?.response.reasoning_fields?.map((field) => field.path).join(",") || "-").padEnd(12)} ${String(result.ms).padStart(6)}ms`,
+    `${status} ${testCase.client.padEnd(6)} ${testCase.model.padEnd(28)} effort=${String(expectedEffort).padEnd(6)} inbound=${String(clientTrace?.path ?? "-").padEnd(13)} upstream=${String(trace?.path ?? "-").padEnd(17)} req_model=${String(trace?.request.model ?? "-").padEnd(32)} req_effort=${String(actualEffort).padEnd(6)} in_effort=${String(clientTrace?.request.reasoning_effort ?? clientTrace?.request.thinking?.budget_tokens ?? clientTrace?.request.reasoning?.effort ?? "none").padEnd(7)} resp_model=${String(trace?.response.model ?? "-").padEnd(28)} resp_reason=${String(trace?.response.reasoning_fields?.map((field) => field.path).join(",") || "-").padEnd(12)} client_reason=${clientReasoning} ${String(result.ms).padStart(6)}ms`,
   )
   if (!result.ok) {
     console.log(`     checks=${JSON.stringify(result.checks)} error=${result.error ?? ""}`)

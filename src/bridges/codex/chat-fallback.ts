@@ -103,6 +103,8 @@ interface ChatMessage {
   role: ChatRole
   content?: string | Array<ChatContentPart> | null
   name?: string
+  reasoning_content?: string | null
+  reasoning_text?: string | null
   tool_call_id?: string
   tool_calls?: Array<ChatToolCall>
 }
@@ -281,6 +283,12 @@ interface ResponsesApiResult {
   output: Array<
     | {
         id: string
+        type: "reasoning"
+        status: "completed"
+        summary: Array<{ type: "summary_text"; text: string }>
+      }
+    | {
+        id: string
         type: "message"
         role: "assistant"
         status: "completed"
@@ -319,6 +327,15 @@ const buildResponsesResult = (
     : ""
 
   const output: ResponsesApiResult["output"] = []
+  const reasoningText = message?.reasoning_text ?? message?.reasoning_content
+  if (reasoningText) {
+    output.push({
+      id: `rs_${randomUUID()}`,
+      type: "reasoning",
+      status: "completed",
+      summary: [{ type: "summary_text", text: reasoningText }],
+    })
+  }
   if (text.length > 0) {
     output.push({
       id: `msg_${randomUUID()}`,
@@ -397,7 +414,18 @@ export const synthesizeResponsesSseFromChat = (
           item,
         })
 
-        if (item.type === "message") {
+        if (item.type === "reasoning") {
+          const text = item.summary.map((summary) => summary.text).join("")
+          if (text) {
+            push("response.reasoning_summary_text.delta", {
+              type: "response.reasoning_summary_text.delta",
+              item_id: item.id,
+              output_index: index,
+              summary_index: 0,
+              delta: text,
+            })
+          }
+        } else if (item.type === "message") {
           const text = item.content[0]?.text ?? ""
           const part = { type: "output_text", text: "", annotations: [] }
           push("response.content_part.added", {
