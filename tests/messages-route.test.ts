@@ -1894,6 +1894,53 @@ describe("/v1/messages route", () => {
     expect((captured[0].body as { reasoning_effort?: string }).reasoning_effort).toBeUndefined()
   })
 
+  test("non-stream mode returns upstream reasoning as an Anthropic thinking block", async () => {
+    const captured: Array<CapturedRequest> = []
+    const upstream = new Response(
+      JSON.stringify({
+        id: "chatcmpl-thinking",
+        created: 1700000000,
+        model: "claude-opus-4.7-high",
+        choices: [
+          {
+            index: 0,
+            message: {
+              role: "assistant",
+              reasoning_text: "I should answer briefly.",
+              content: "OK",
+            },
+            finish_reason: "stop",
+          },
+        ],
+        usage: { prompt_tokens: 9, completion_tokens: 2, total_tokens: 11 },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    )
+
+    const { app, restore: r } = buildApp(captured, upstream)
+    restore = r
+
+    const res = await app.request("/v1/messages", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-opus-4.7",
+        max_tokens: 1024,
+        messages: [{ role: "user", content: "Reply with OK" }],
+        reasoning_effort: "high",
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    const json = (await res.json()) as {
+      content: Array<{ type: string; text?: string; thinking?: string }>
+    }
+    expect(json.content).toEqual([
+      { type: "thinking", thinking: "I should answer briefly." },
+      { type: "text", text: "OK" },
+    ])
+  })
+
   test("stream mode translates OpenAI chunks to Anthropic SSE events", async () => {
     const captured: Array<CapturedRequest> = []
     const sseBody = [
@@ -1931,6 +1978,45 @@ describe("/v1/messages route", () => {
     expect(text).toContain("event: content_block_delta")
     expect(text).toContain("event: message_stop")
     expect(text).toContain('"text":"OK"')
+  })
+
+  test("stream mode returns upstream reasoning as Anthropic thinking events", async () => {
+    const captured: Array<CapturedRequest> = []
+    const sseBody = [
+      'data: {"id":"cmpl-thinking","object":"chat.completion.chunk","created":1700000001,"model":"claude-opus-4.7-high","choices":[{"index":0,"delta":{"role":"assistant","reasoning_text":"I should answer briefly."},"finish_reason":null,"logprobs":null}],"usage":{"prompt_tokens":10,"completion_tokens":0,"total_tokens":10}}\n\n',
+      'data: {"id":"cmpl-thinking","object":"chat.completion.chunk","created":1700000001,"model":"claude-opus-4.7-high","choices":[{"index":0,"delta":{"content":"OK"},"finish_reason":null,"logprobs":null}],"usage":{"prompt_tokens":10,"completion_tokens":1,"total_tokens":11}}\n\n',
+      'data: {"id":"cmpl-thinking","object":"chat.completion.chunk","created":1700000001,"model":"claude-opus-4.7-high","choices":[{"index":0,"delta":{},"finish_reason":"stop","logprobs":null}],"usage":{"prompt_tokens":10,"completion_tokens":1,"total_tokens":11}}\n\n',
+      "data: [DONE]\n\n",
+    ].join("")
+    const upstream = new Response(sseBody, {
+      status: 200,
+      headers: { "content-type": "text/event-stream; charset=utf-8" },
+    })
+
+    const { app, restore: r } = buildApp(captured, upstream)
+    restore = r
+
+    const res = await app.request("/v1/messages", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-opus-4.7",
+        stream: true,
+        max_tokens: 1024,
+        messages: [{ role: "user", content: "Reply with OK" }],
+        reasoning_effort: "high",
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    const text = await res.text()
+    expect(text).toContain('"type":"thinking"')
+    expect(text).toContain('"type":"thinking_delta"')
+    expect(text).toContain('"thinking":"I should answer briefly."')
+    expect(text).toContain('"type":"text_delta"')
+    expect(text.indexOf('"type":"thinking_delta"')).toBeLessThan(
+      text.indexOf('"type":"text_delta"'),
+    )
   })
 
   test("stream mode restores shortened MCP tool names in Anthropic SSE events", async () => {

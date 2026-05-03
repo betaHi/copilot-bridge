@@ -53,6 +53,7 @@ interface TraceRecord {
   response: {
     model?: unknown
     reasoning_tokens?: unknown
+    reasoning_fields?: Array<{ path: string; value: unknown }>
     content_type?: string
   }
 }
@@ -211,6 +212,70 @@ const pickReasoningTokens = (responseJson: unknown): unknown => {
   return outputDetails?.reasoning_tokens
 }
 
+const isReasoningResponseKey = (key: string): boolean => {
+  const normalized = key.toLowerCase()
+  if (normalized === "finish_reason") return false
+  return normalized.includes("reason")
+    || normalized.includes("thinking")
+    || normalized.includes("summary")
+}
+
+const compactReasoningValue = (value: unknown): unknown => {
+  if (typeof value === "string") return value.slice(0, 120)
+  if (typeof value === "number" || typeof value === "boolean" || value === null) {
+    return value
+  }
+  if (Array.isArray(value)) return `[array:${value.length}]`
+  if (typeof value === "object" && value !== null) return "[object]"
+  return typeof value
+}
+
+const collectReasoningFieldsFromJson = (
+  value: unknown,
+  path = "$",
+  fields: Array<{ path: string; value: unknown }> = [],
+): Array<{ path: string; value: unknown }> => {
+  if (fields.length >= 20) return fields
+
+  if (Array.isArray(value)) {
+    for (const [index, item] of value.entries()) {
+      collectReasoningFieldsFromJson(item, `${path}[${index}]`, fields)
+      if (fields.length >= 20) break
+    }
+    return fields
+  }
+
+  const record = asRecord(value)
+  if (!record) return fields
+
+  for (const [key, item] of Object.entries(record)) {
+    const nextPath = `${path}.${key}`
+    if (isReasoningResponseKey(key)) {
+      fields.push({ path: nextPath, value: compactReasoningValue(item) })
+      if (fields.length >= 20) break
+    }
+    collectReasoningFieldsFromJson(item, nextPath, fields)
+    if (fields.length >= 20) break
+  }
+
+  return fields
+}
+
+const collectReasoningFields = (
+  responseJson: unknown,
+  responseText: string,
+): Array<{ path: string; value: unknown }> => {
+  const fields = collectReasoningFieldsFromJson(responseJson)
+  for (const line of responseText.split(/\r?\n/)) {
+    if (!line.startsWith("data:")) continue
+    const data = line.slice("data:".length).trim()
+    if (!data || data === "[DONE]") continue
+    collectReasoningFieldsFromJson(parseJson(data), "$<sse>", fields)
+    if (fields.length >= 20) break
+  }
+  return fields
+}
+
 const createTraceProxy = async (tracePath: string) => {
   const records: Array<TraceRecord> = []
   let seq = 0
@@ -255,6 +320,7 @@ const createTraceProxy = async (tracePath: string) => {
           model:
             responseRecord?.model ?? pickResponseModelFromSse(responseText),
           reasoning_tokens: pickReasoningTokens(responseJson),
+          reasoning_fields: collectReasoningFields(responseJson, responseText),
           content_type: contentType,
         },
       }
@@ -567,6 +633,19 @@ const effortMatches = (testCase: MatrixCase, trace: TraceRecord): boolean => {
   return false
 }
 
+const responseModelMatches = (
+  actual: unknown,
+  expected: string,
+): boolean => {
+  if (typeof actual !== "string") return false
+  if (actual === expected) return true
+
+  const escapedExpected = expected.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+  return new RegExp(`^${escapedExpected}-\\d{4}-\\d{2}-\\d{2}$`).test(
+    actual,
+  )
+}
+
 const findTrace = (
   records: Array<TraceRecord>,
   fromIndex: number,
@@ -601,7 +680,10 @@ const evaluateCase = (
     upstream_called: trace !== undefined,
     upstream_status: trace ? trace.status >= 200 && trace.status <= 299 : false,
     upstream_model: trace?.request.model === testCase.upstreamModel,
-    upstream_response_model: trace?.response.model === testCase.upstreamModel,
+    upstream_response_model: responseModelMatches(
+      trace?.response.model,
+      testCase.upstreamModel,
+    ),
     upstream_effort: trace ? effortMatches(testCase, trace) : false,
   }
   const ok = Object.values(checks).every(Boolean)
@@ -633,7 +715,7 @@ const printResult = (result: CaseResult): void => {
     ?? "none"
   const status = result.ok ? "PASS" : "FAIL"
   console.log(
-    `${status} ${testCase.client.padEnd(6)} ${testCase.model.padEnd(28)} effort=${String(expectedEffort).padEnd(6)} inbound=${String(clientTrace?.path ?? "-").padEnd(13)} upstream=${String(trace?.path ?? "-").padEnd(17)} req_model=${String(trace?.request.model ?? "-").padEnd(32)} req_effort=${String(actualEffort).padEnd(6)} in_effort=${String(clientTrace?.request.reasoning_effort ?? clientTrace?.request.thinking?.budget_tokens ?? clientTrace?.request.reasoning?.effort ?? "none").padEnd(7)} resp_model=${String(trace?.response.model ?? "-").padEnd(28)} ${String(result.ms).padStart(6)}ms`,
+    `${status} ${testCase.client.padEnd(6)} ${testCase.model.padEnd(28)} effort=${String(expectedEffort).padEnd(6)} inbound=${String(clientTrace?.path ?? "-").padEnd(13)} upstream=${String(trace?.path ?? "-").padEnd(17)} req_model=${String(trace?.request.model ?? "-").padEnd(32)} req_effort=${String(actualEffort).padEnd(6)} in_effort=${String(clientTrace?.request.reasoning_effort ?? clientTrace?.request.thinking?.budget_tokens ?? clientTrace?.request.reasoning?.effort ?? "none").padEnd(7)} resp_model=${String(trace?.response.model ?? "-").padEnd(28)} resp_reason=${String(trace?.response.reasoning_fields?.map((field) => field.path).join(",") || "-").padEnd(12)} ${String(result.ms).padStart(6)}ms`,
   )
   if (!result.ok) {
     console.log(`     checks=${JSON.stringify(result.checks)} error=${result.error ?? ""}`)

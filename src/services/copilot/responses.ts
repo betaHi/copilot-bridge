@@ -21,6 +21,7 @@ export interface ResponsesApiResponse {
   created_at: number
   model: string
   output: Array<ResponsesOutputItem>
+  reasoning?: ResponsesReasoningSummaryContainer | null
   usage?: {
     input_tokens: number
     input_tokens_details?: {
@@ -139,6 +140,21 @@ interface ResponsesFunctionCallOutputItem {
 
 interface ResponsesReasoningOutputItem {
   type: "reasoning"
+  summary?: ResponsesReasoningSummary
+}
+
+type ResponsesReasoningSummary =
+  | string
+  | Array<ResponsesReasoningSummaryPart>
+  | null
+
+type ResponsesReasoningSummaryPart = {
+  type?: string
+  text?: string
+}
+
+interface ResponsesReasoningSummaryContainer {
+  summary?: ResponsesReasoningSummary
 }
 
 interface ResponsesStreamEnvelope {
@@ -149,11 +165,13 @@ interface ResponsesStreamEnvelope {
     model: string
     usage?: ResponsesApiResponse["usage"]
     output?: Array<ResponsesOutputItem>
+    reasoning?: ResponsesReasoningSummaryContainer | null
     incomplete_details?: ResponsesApiResponse["incomplete_details"]
   }
   item?:
     | Partial<ResponsesMessageOutputItem>
     | Partial<ResponsesFunctionCallOutputItem>
+    | Partial<ResponsesReasoningOutputItem>
   output_index?: number
   delta?: string
 }
@@ -163,6 +181,7 @@ interface ResponseTranslationState {
   createdAt: number
   model: string
   started: boolean
+  reasoningTextSent: boolean
 }
 
 interface CreateChunkOptions {
@@ -215,6 +234,7 @@ export function translateResponsesToChatCompletion(
     .flatMap((item) => item.content)
     .map((part) => part.text)
     .join("")
+  const reasoningText = getResponsesReasoningText(response)
 
   return {
     id: response.id,
@@ -227,6 +247,7 @@ export function translateResponsesToChatCompletion(
         message: {
           role: "assistant",
           content: content || null,
+          ...(reasoningText && { reasoning_text: reasoningText }),
           ...(functionCalls.length > 0 && {
             tool_calls: functionCalls.map((toolCall) => ({
               id: toolCall.call_id,
@@ -254,6 +275,7 @@ export async function* translateResponsesStreamToChatCompletionStream(
     createdAt: Math.floor(Date.now() / 1000),
     model: "",
     started: false,
+    reasoningTextSent: false,
   }
 
   for await (const rawEvent of responseStream) {
@@ -273,6 +295,15 @@ export async function* translateResponsesStreamToChatCompletionStream(
       const chunk = handleOutputItemAdded(state, event)
       if (chunk) {
         yield chunk
+      }
+      continue
+    }
+
+    if (event.type === "response.reasoning_summary_text.delta") {
+      if (event.delta) {
+        yield createRoleChunk(state)
+        yield createChunk(state, { delta: { reasoning_text: event.delta } })
+        state.reasoningTextSent = true
       }
       continue
     }
@@ -310,6 +341,16 @@ export async function* translateResponsesStreamToChatCompletionStream(
         continue
       }
 
+      const reasoningText = getResponsesReasoningText({
+        output: event.response.output ?? [],
+        reasoning: event.response.reasoning,
+      })
+      if (reasoningText && !state.reasoningTextSent) {
+        yield createRoleChunk(state)
+        yield createChunk(state, { delta: { reasoning_text: reasoningText } })
+        state.reasoningTextSent = true
+      }
+
       yield createChunk(
         {
           ...state,
@@ -343,6 +384,16 @@ function handleOutputItemAdded(
 ): ResponseStreamEventMessage | undefined {
   if (event.item?.type === "message") {
     return createRoleChunk(state)
+  }
+
+  if (event.item?.type === "reasoning") {
+    const reasoningText = getSummaryText(event.item.summary)
+    if (!reasoningText) {
+      return undefined
+    }
+
+    state.reasoningTextSent = true
+    return createChunk(state, { delta: { reasoning_text: reasoningText } })
   }
 
   if (
@@ -566,6 +617,36 @@ function translateUsage(
       },
     }),
   }
+}
+
+function getResponsesReasoningText(
+  response: Pick<ResponsesApiResponse, "output" | "reasoning">,
+): string | undefined {
+  const parts = [
+    getSummaryText(response.reasoning?.summary),
+    ...response.output
+      .filter((item): item is ResponsesReasoningOutputItem => item.type === "reasoning")
+      .map((item) => getSummaryText(item.summary)),
+  ].filter((part): part is string => Boolean(part))
+
+  return parts.length > 0 ? parts.join("\n\n") : undefined
+}
+
+function getSummaryText(summary: ResponsesReasoningSummary | undefined): string | undefined {
+  if (typeof summary === "string") {
+    return summary || undefined
+  }
+
+  if (!Array.isArray(summary)) {
+    return undefined
+  }
+
+  const text = summary
+    .map((part) => part.text)
+    .filter((part): part is string => Boolean(part))
+    .join("\n\n")
+
+  return text || undefined
 }
 
 function getFinishReason(

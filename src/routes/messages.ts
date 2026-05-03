@@ -81,6 +81,7 @@ messageRoutes.post("/", async (c) => {
         messageStartSent: false,
         contentBlockIndex: 0,
         contentBlockOpen: false,
+        thinkingBlockOpen: false,
         toolCalls: {},
       }
 

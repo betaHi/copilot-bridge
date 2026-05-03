@@ -19,6 +19,23 @@ function isToolBlockOpen(state: AnthropicStreamState): boolean {
   )
 }
 
+const closeOpenContentBlock = (
+  events: Array<AnthropicStreamEventData>,
+  state: AnthropicStreamState,
+): void => {
+  if (!state.contentBlockOpen) {
+    return
+  }
+
+  events.push({
+    type: "content_block_stop",
+    index: state.contentBlockIndex,
+  })
+  state.contentBlockIndex++
+  state.contentBlockOpen = false
+  state.thinkingBlockOpen = false
+}
+
 export function translateChunkToAnthropicEvents(
   chunk: ChatCompletionChunk,
   state: AnthropicStreamState,
@@ -34,6 +51,7 @@ export function translateChunkToAnthropicEvents(
 
   const choice = chunk.choices[0]
   const { delta } = choice
+  const reasoningContent = delta.reasoning_text ?? delta.reasoning_content
 
   if (!state.messageStartSent) {
     events.push({
@@ -60,14 +78,37 @@ export function translateChunkToAnthropicEvents(
     state.messageStartSent = true
   }
 
-  if (delta.content) {
-    if (isToolBlockOpen(state)) {
+  if (reasoningContent) {
+    if (state.contentBlockOpen && !state.thinkingBlockOpen) {
+      closeOpenContentBlock(events, state)
+    }
+
+    if (!state.contentBlockOpen) {
       events.push({
-        type: "content_block_stop",
+        type: "content_block_start",
         index: state.contentBlockIndex,
+        content_block: {
+          type: "thinking",
+          thinking: "",
+        },
       })
-      state.contentBlockIndex++
-      state.contentBlockOpen = false
+      state.contentBlockOpen = true
+      state.thinkingBlockOpen = true
+    }
+
+    events.push({
+      type: "content_block_delta",
+      index: state.contentBlockIndex,
+      delta: {
+        type: "thinking_delta",
+        thinking: reasoningContent,
+      },
+    })
+  }
+
+  if (delta.content) {
+    if (state.thinkingBlockOpen || isToolBlockOpen(state)) {
+      closeOpenContentBlock(events, state)
     }
 
     if (!state.contentBlockOpen) {
@@ -96,12 +137,7 @@ export function translateChunkToAnthropicEvents(
     for (const toolCall of delta.tool_calls) {
       if (toolCall.id && toolCall.function?.name) {
         if (state.contentBlockOpen) {
-          events.push({
-            type: "content_block_stop",
-            index: state.contentBlockIndex,
-          })
-          state.contentBlockIndex++
-          state.contentBlockOpen = false
+          closeOpenContentBlock(events, state)
         }
 
         const toolName = toolNameMapper.toAnthropic(toolCall.function.name)
@@ -143,11 +179,7 @@ export function translateChunkToAnthropicEvents(
 
   if (choice.finish_reason) {
     if (state.contentBlockOpen) {
-      events.push({
-        type: "content_block_stop",
-        index: state.contentBlockIndex,
-      })
-      state.contentBlockOpen = false
+      closeOpenContentBlock(events, state)
     }
 
     events.push(

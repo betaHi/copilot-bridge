@@ -29,6 +29,9 @@ interface ChatChunkChoice {
 interface ChatChunkDelta {
   content?: string | null
   role?: "user" | "assistant" | "system" | "tool"
+  reasoning_content?: string | null
+  reasoning_opaque?: string | null
+  reasoning_text?: string | null
   tool_calls?: Array<{
     index: number
     id?: string
@@ -67,6 +70,9 @@ interface ChatNonStreamingChoice {
 interface ChatResponseMessage {
   role: "assistant"
   content: string | null
+  reasoning_content?: string | null
+  reasoning_opaque?: string | null
+  reasoning_text?: string | null
   tool_calls?: Array<ToolCall>
 }
 

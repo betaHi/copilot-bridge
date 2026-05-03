@@ -616,6 +616,7 @@ export function translateToAnthropic(
     undefined,
   ),
 ): AnthropicResponse {
+  const allThinkingBlocks: Array<AnthropicThinkingBlock> = []
   const allTextBlocks: Array<AnthropicTextBlock> = []
   const allToolUseBlocks: Array<AnthropicToolUseBlock> = []
   let stopReason: "stop" | "length" | "tool_calls" | "content_filter" | null = null
@@ -623,6 +624,11 @@ export function translateToAnthropic(
   stopReason = response.choices[0]?.finish_reason ?? stopReason
 
   for (const choice of response.choices) {
+    allThinkingBlocks.push(
+      ...getAnthropicThinkingBlocks(
+        choice.message.reasoning_text ?? choice.message.reasoning_content,
+      ),
+    )
     allTextBlocks.push(...getAnthropicTextBlocks(choice.message.content))
     allToolUseBlocks.push(
       ...getAnthropicToolUseBlocks(choice.message.tool_calls, toolNameMapper),
@@ -638,7 +644,7 @@ export function translateToAnthropic(
     type: "message",
     role: "assistant",
     model: response.model,
-    content: [...allTextBlocks, ...allToolUseBlocks],
+    content: [...allThinkingBlocks, ...allTextBlocks, ...allToolUseBlocks],
     stop_reason: mapOpenAIStopReasonToAnthropic(stopReason),
     stop_sequence: null,
     usage: {
@@ -651,6 +657,16 @@ export function translateToAnthropic(
       }),
     },
   }
+}
+
+function getAnthropicThinkingBlocks(
+  reasoningContent: string | null | undefined,
+): Array<AnthropicThinkingBlock> {
+  if (!reasoningContent) {
+    return []
+  }
+
+  return [{ type: "thinking", thinking: reasoningContent }]
 }
 
 function getAnthropicTextBlocks(
