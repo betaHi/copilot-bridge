@@ -168,8 +168,8 @@ COPILOT_WEB_SEARCH_BACKEND = "gpt-5.5"
 | Value | Search path | Requirement |
 | ----- | ----------- | ----------- |
 | Copilot model id, for example `gpt-5.5` | Copilot HTTP `/responses` + `web_search_preview` | The model must support Copilot Responses web search. |
-| `searxng` | Local SearXNG at `http://localhost:8080` | Start SearXNG yourself. Setup guide: https://github.com/betaHi/openclaw-searxng-search. |
-| `copilot-cli` or `copilot` | GitHub Copilot CLI `web_search` tool, using the current request model | Install and sign in to GitHub Copilot CLI yourself. |
+| `searxng`, use `"COPILOT_WEB_SEARCH_BACKEND": "searxng"` | Local SearXNG at `http://localhost:8080` | Start SearXNG yourself. Setup guide: https://github.com/betaHi/openclaw-searxng-search. |
+| `copilot-cli` or `copilot`, use `"COPILOT_WEB_SEARCH_BACKEND": "copilot-cli"` | GitHub Copilot CLI `web_search` tool, using the current request model | Install and sign in to GitHub Copilot CLI yourself. |
 
 The bridge never installs Docker, SearXNG, or Copilot CLI automatically.
 
