@@ -70,7 +70,7 @@ describe("chat-fallback: request translation", () => {
     })
   })
 
-  test("filters codex hosted tools (web_search) and tools without name", () => {
+  test("maps codex hosted web_search to a function tool", () => {
     const out = responsesPayloadToChatPayload(
       {
         model: "claude-opus-4.6",
@@ -91,17 +91,33 @@ describe("chat-fallback: request translation", () => {
       },
       claudeOpus46,
     )
-    expect(out.tools).toHaveLength(1)
+    expect(out.tools).toHaveLength(2)
     expect(out.tools?.[0].function.name).toBe("exec_command")
+    expect(out.tools?.[1].function.name).toBe("web_search")
     expect(out.tool_choice).toBe("auto")
   })
 
-  test("when no usable tools remain, omit tools and tool_choice entirely", () => {
+  test("hosted web_search keeps tool_choice available for fallback models", () => {
     const out = responsesPayloadToChatPayload(
       {
         model: "claude-opus-4.6",
         input: "x",
         tools: [{ type: "web_search", external_web_access: false } as never],
+        tool_choice: "auto",
+      },
+      claudeOpus46,
+    )
+    expect(out.tools).toHaveLength(1)
+    expect(out.tools?.[0].function.name).toBe("web_search")
+    expect(out.tool_choice).toBe("auto")
+  })
+
+  test("empty or unusable tools omit tools and tool_choice", () => {
+    const out = responsesPayloadToChatPayload(
+      {
+        model: "claude-opus-4.6",
+        input: "x",
+        tools: [{ type: "function" } as never],
         tool_choice: "auto",
       },
       claudeOpus46,

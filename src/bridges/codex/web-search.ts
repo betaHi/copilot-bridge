@@ -11,6 +11,7 @@ import type { ResponsesRequestLike } from "./chat-fallback"
 
 interface CodexWebSearchOptions {
   backend?: string
+  requestedQuery?: string
 }
 
 interface ResponsesOutputTextPart {
@@ -100,7 +101,10 @@ const getRequestedQuery = (request: ResponsesRequestLike): string => {
   return searchMatch?.[1]?.trim() || cleaned || "web search"
 }
 
-const buildSearchInput = (request: ResponsesRequestLike): string => {
+const buildSearchInput = (
+  request: ResponsesRequestLike,
+  requestedQuery: string,
+): string => {
   const items = inputItemsFromRequest(request)
   const conversation = items
     .flatMap((item) => {
@@ -116,6 +120,7 @@ const buildSearchInput = (request: ResponsesRequestLike): string => {
     "Return useful search results as plain text lines in this exact shape:",
     "1. Title - https://example.com/page",
     "Include only real source URLs from the search results.",
+    `Search query:\n${requestedQuery}`,
     request.instructions ? `Instructions:\n${request.instructions}` : "",
     conversation ? `Conversation:\n${conversation}` : "",
   ]
@@ -125,15 +130,19 @@ const buildSearchInput = (request: ResponsesRequestLike): string => {
 
 const createExecutionRequest = (
   request: ResponsesRequestLike,
-): WebSearchExecutionRequest => ({
-  clientName: "Codex",
-  configurationHint: "Set COPILOT_WEB_SEARCH_BACKEND in ~/.codex/config.toml to a Copilot Responses search model id such as gpt-5.5, searxng, or copilot-cli.",
-  maxOutputTokens: request.max_output_tokens,
-  requestedQuery: getRequestedQuery(request),
-  searchInput: buildSearchInput(request),
-  temperature: request.temperature,
-  topP: request.top_p,
-})
+  requestedQuery?: string,
+): WebSearchExecutionRequest => {
+  const query = requestedQuery?.trim() || getRequestedQuery(request)
+  return {
+    clientName: "Codex",
+    configurationHint: "Set COPILOT_WEB_SEARCH_BACKEND in ~/.codex/config.toml to a Copilot Responses search model id such as gpt-5.5, searxng, or copilot-cli.",
+    maxOutputTokens: request.max_output_tokens,
+    requestedQuery: query,
+    searchInput: buildSearchInput(request, query),
+    temperature: request.temperature,
+    topP: request.top_p,
+  }
+}
 
 export const isCodexNativeWebSearchTool = (tool: unknown): boolean => {
   if (!isRecord(tool)) {
@@ -143,9 +152,42 @@ export const isCodexNativeWebSearchTool = (tool: unknown): boolean => {
   return tool.type === "web_search" || tool.type === "web_search_preview"
 }
 
+const isCodexNativeWebSearchToolChoice = (toolChoice: unknown): boolean => {
+  if (!isRecord(toolChoice)) {
+    return false
+  }
+
+  return toolChoice.type === "web_search" || toolChoice.type === "web_search_preview"
+}
+
+const hasOnlyCodexNativeWebSearchTools = (
+  tools: ResponsesRequestLike["tools"],
+): boolean => {
+  if (!Array.isArray(tools) || tools.length === 0) {
+    return false
+  }
+
+  return tools.every(isCodexNativeWebSearchTool)
+}
+
 export const hasCodexNativeWebSearch = (
   request: ResponsesRequestLike,
 ): boolean => request.tools?.some(isCodexNativeWebSearchTool) ?? false
+
+export const isCodexNativeWebSearchRequested = (
+  request: ResponsesRequestLike,
+): boolean => {
+  if (!hasCodexNativeWebSearch(request)) {
+    return false
+  }
+
+  if (isCodexNativeWebSearchToolChoice(request.tool_choice)) {
+    return true
+  }
+
+  return request.tool_choice === "required"
+    && hasOnlyCodexNativeWebSearchTools(request.tools)
+}
 
 const fallbackSearchText = (search: SearchExecutionResult): string => {
   if (search.text) {
@@ -293,7 +335,7 @@ export async function createCodexWebSearchResponse(
 ): Promise<CodexWebSearchResponse> {
   const search = await createWebSearchExecution(
     config,
-    createExecutionRequest(request),
+    createExecutionRequest(request, options.requestedQuery),
     {
       backend: options.backend,
       copilotCliModel: request.model,

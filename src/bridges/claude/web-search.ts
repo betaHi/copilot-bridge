@@ -17,6 +17,7 @@ import {
 } from "~/providers/copilot/client"
 
 const ANTHROPIC_WEB_SEARCH_TOOL_PATTERN = /^web_search_\d{8}$/
+const CLAUDE_CODE_WEB_SEARCH_TOOL_NAME = "WebSearch"
 const DEFAULT_SEARXNG_BASE_URL = "http://localhost:8080"
 const SEARCH_RESULT_LIMIT = 8
 const SEARXNG_READINESS_TIMEOUT_MS = 800
@@ -111,7 +112,7 @@ export const isAnthropicNativeWebSearchTool = (tool: unknown): boolean => {
     tool.name === "web_search"
     && typeof tool.type === "string"
     && ANTHROPIC_WEB_SEARCH_TOOL_PATTERN.test(tool.type)
-  )
+  ) || tool.name === CLAUDE_CODE_WEB_SEARCH_TOOL_NAME
 }
 
 export const hasAnthropicNativeWebSearch = (

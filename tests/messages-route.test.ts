@@ -1777,21 +1777,33 @@ describe("/v1/messages route", () => {
     expect(body.tool_choice).toBe("required")
   })
 
-  test("does not route ordinary WebSearch function tools through the native web search shim", async () => {
+  test("routes Claude Code WebSearch function tools through the configured backend model", async () => {
+    await writeFile(
+      path.join(isolatedHome!, ".claude", "settings.json"),
+      JSON.stringify({ env: { COPILOT_WEB_SEARCH_BACKEND: "gpt-5.5" } }),
+    )
     const captured: Array<CapturedRequest> = []
     const upstream = new Response(
       JSON.stringify({
-        id: "chatcmpl-websearch-function",
-        created: 1700000000,
-        model: "claude-sonnet-4.6",
-        choices: [
+        id: "resp-websearch-function",
+        created_at: 1700000000,
+        model: "gpt-5.5",
+        output: [
           {
-            index: 0,
-            message: { role: "assistant", content: "OK" },
-            finish_reason: "stop",
+            type: "web_search_call",
+            action: { query: "GitHub Copilot docs" },
+          },
+          {
+            type: "message",
+            content: [
+              {
+                type: "output_text",
+                text: "1. GitHub Copilot docs - https://docs.github.com/en/copilot",
+              },
+            ],
           },
         ],
-        usage: { prompt_tokens: 9, completion_tokens: 2, total_tokens: 11 },
+        usage: { input_tokens: 9, output_tokens: 2 },
       }),
       { status: 200, headers: { "content-type": "application/json" } },
     )
@@ -1822,11 +1834,17 @@ describe("/v1/messages route", () => {
 
     expect(res.status).toBe(200)
     expect(captured).toHaveLength(1)
-    expect(captured[0].url).toBe("https://upstream.test/chat/completions")
-    const body = captured[0].body as {
-      tools?: Array<{ function: { name: string } }>
+    expect(captured[0].url).toBe("https://upstream.test/responses")
+    const body = captured[0].body as { model: string; tools: Array<{ type: string }> }
+    expect(body.model).toBe("gpt-5.5")
+    expect(body.tools).toEqual([{ type: "web_search_preview" }])
+    const json = (await res.json()) as {
+      content: Array<{ type: string; content?: Array<{ url?: string }> }>
+      usage?: { server_tool_use?: { web_search_requests?: number } }
     }
-    expect(body.tools?.[0]?.function.name).toBe("WebSearch")
+    expect(json.content[0]?.type).toBe("server_tool_use")
+    expect(json.content[1]?.type).toBe("web_search_tool_result")
+    expect(json.usage?.server_tool_use?.web_search_requests).toBe(1)
   })
 
   test("routes Anthropic native web search tools through the configured backend model", async () => {

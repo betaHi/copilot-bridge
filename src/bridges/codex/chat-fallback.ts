@@ -52,7 +52,7 @@ type ResponsesInputItem =
   | ResponsesFunctionCallInput
   | ResponsesFunctionCallOutputInput
 
-interface ResponsesTool {
+interface ResponsesFunctionTool {
   type: "function"
   name?: string
   description?: string
@@ -63,6 +63,13 @@ interface ResponsesTool {
     parameters?: Record<string, unknown>
   }
 }
+
+interface ResponsesHostedTool {
+  type: string
+  [key: string]: unknown
+}
+
+type ResponsesTool = ResponsesFunctionTool | ResponsesHostedTool
 
 export interface ResponsesRequestLike {
   model: string
@@ -79,6 +86,7 @@ export interface ResponsesRequestLike {
     | "none"
     | "required"
     | { type: "function"; name: string }
+    | { type: string; [key: string]: unknown }
   reasoning?: { effort?: ReasoningEffort; [k: string]: unknown }
   [key: string]: unknown
 }
@@ -149,6 +157,32 @@ interface ChatCompletionResponse {
 }
 
 // ---------- Helpers ----------
+
+const isResponsesFunctionTool = (
+  tool: ResponsesTool,
+): tool is ResponsesFunctionTool => tool.type === "function"
+
+const isResponsesWebSearchTool = (tool: ResponsesTool): boolean =>
+  tool.type === "web_search" || tool.type === "web_search_preview"
+
+const WEB_SEARCH_FUNCTION_TOOL: ChatTool = {
+  type: "function",
+  function: {
+    name: "web_search",
+    description: "Search the web for current information and source URLs.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description: "The web search query.",
+        },
+      },
+      required: ["query"],
+      additionalProperties: false,
+    },
+  },
+}
 
 const collectText = (
   content: string | Array<ResponsesInputContentPart> | undefined,
@@ -240,10 +274,11 @@ export const responsesPayloadToChatPayload = (
     }
   }
 
-  const tools: Array<ChatTool> | undefined = request.tools
-    ?.filter((t) => {
+  const functionTools: Array<ChatTool> | undefined = request.tools
+    ?.filter(isResponsesFunctionTool)
+    .filter((t) => {
       const name = t.function?.name ?? t.name
-      return t.type === "function" && typeof name === "string" && name.length > 0
+      return typeof name === "string" && name.length > 0
     })
     .map((t) => ({
       type: "function",
@@ -253,6 +288,20 @@ export const responsesPayloadToChatPayload = (
         parameters: t.function?.parameters ?? t.parameters,
       },
     }))
+  const hasWebSearchTool = request.tools?.some(isResponsesWebSearchTool) ?? false
+  const hasNamedWebSearchFunction =
+    functionTools?.some((tool) => tool.function.name === "web_search") ?? false
+  const tools = [
+    ...(functionTools ?? []),
+    ...(hasWebSearchTool && !hasNamedWebSearchFunction ? [WEB_SEARCH_FUNCTION_TOOL] : []),
+  ]
+
+  if (hasWebSearchTool) {
+    messages.unshift({
+      role: "system",
+      content: "A web_search tool is available for current web information and source URLs. Use it when the user asks to search the web; do not use it for unrelated tasks.",
+    })
+  }
 
   const payload: ChatRequestPayload = {
     model: capability.id,
@@ -262,7 +311,7 @@ export const responsesPayloadToChatPayload = (
     temperature: request.temperature,
     top_p: request.top_p,
     user: request.user,
-    tools: tools && tools.length > 0 ? tools : undefined,
+    tools: tools.length > 0 ? tools : undefined,
     tool_choice:
       tools && tools.length > 0 ? request.tool_choice : undefined,
   }

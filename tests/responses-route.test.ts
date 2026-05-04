@@ -385,6 +385,200 @@ model_reasoning_effort = "high"
     expect(body.error.message).toBe("bad")
   })
 
+  test("Codex fallback ignores default web_search availability when not selected", async () => {
+    const home = await mkdtemp(path.join(os.tmpdir(), "codex-web-search-home-"))
+    process.env.HOME = home
+    const captured: Array<CapturedRequest> = []
+    const upstream = new Response(
+      JSON.stringify({
+        id: "chatcmpl-web-search-ignored",
+        model: "claude-opus-4.6",
+        choices: [{ message: { role: "assistant", content: "PONG" } }],
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    )
+    const { app, restore: r } = buildApp(captured, upstream)
+    restore = r
+
+    const res = await app.request("/v1/responses", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-opus-4.6",
+        input: "reply PONG only",
+        tools: [{ type: "web_search", external_web_access: false }],
+        stream: false,
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    expect(captured).toHaveLength(1)
+    expect(captured[0].url).toBe("https://upstream.test/chat/completions")
+    const upstreamBody = captured[0].body as { tools?: Array<unknown> }
+    expect(upstreamBody.tools).toEqual([
+      {
+        type: "function",
+        function: expect.objectContaining({ name: "web_search" }),
+      },
+    ])
+    const json = (await res.json()) as {
+      output: Array<{ content?: Array<{ text?: string }> }>
+    }
+    expect(json.output[0]?.content?.[0]?.text).toBe("PONG")
+  })
+
+  test("Codex fallback executes configured web_search only after model calls it", async () => {
+    const home = await mkdtemp(path.join(os.tmpdir(), "codex-web-search-home-"))
+    process.env.HOME = home
+    await writeCodexConfig('COPILOT_WEB_SEARCH_BACKEND = "gpt-5.5"\n')
+    const captured: Array<CapturedRequest> = []
+    const upstream = new Response(
+      JSON.stringify({
+        id: "chatcmpl-web-search-call",
+        model: "claude-opus-4.6",
+        choices: [
+          {
+            message: {
+              role: "assistant",
+              content: null,
+              tool_calls: [
+                {
+                  id: "call_search",
+                  type: "function",
+                  function: {
+                    name: "web_search",
+                    arguments: JSON.stringify({ query: "GitHub Copilot docs" }),
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    )
+    const { app, restore: r } = buildApp(captured, upstream)
+    restore = r
+
+    const res = await app.request("/v1/responses", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-opus-4.6",
+        input: "search the web for GitHub Copilot docs",
+        tools: [{ type: "web_search", external_web_access: false }],
+        stream: false,
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    expect(captured).toHaveLength(2)
+    expect(captured[0].url).toBe("https://upstream.test/chat/completions")
+    expect(captured[1].url).toBe("https://upstream.test/responses")
+    const searchBody = captured[1].body as { input: string; model: string }
+    expect(searchBody.model).toBe("gpt-5.5")
+    expect(searchBody.input).toContain("GitHub Copilot docs")
+    const json = (await res.json()) as {
+      output: Array<{ type: string; content?: Array<{ text?: string }> }>
+    }
+    expect(json.output[0]?.type).toBe("web_search_call")
+  })
+
+  test("Codex fallback does not execute web_search for empty tool arguments", async () => {
+    const home = await mkdtemp(path.join(os.tmpdir(), "codex-web-search-home-"))
+    process.env.HOME = home
+    await writeCodexConfig('COPILOT_WEB_SEARCH_BACKEND = "gpt-5.5"\n')
+    const captured: Array<CapturedRequest> = []
+    const upstream = new Response(
+      JSON.stringify({
+        id: "chatcmpl-empty-web-search-call",
+        model: "claude-opus-4.6",
+        choices: [
+          {
+            message: {
+              role: "assistant",
+              content: null,
+              tool_calls: [
+                {
+                  id: "call_search",
+                  type: "function",
+                  function: { name: "web_search", arguments: "" },
+                },
+              ],
+            },
+          },
+        ],
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    )
+    const { app, restore: r } = buildApp(captured, upstream)
+    restore = r
+
+    const res = await app.request("/v1/responses", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-opus-4.6",
+        input: "search the web",
+        tools: [{ type: "web_search", external_web_access: false }],
+        stream: false,
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    expect(captured).toHaveLength(1)
+    const json = (await res.json()) as { output: Array<{ type: string }> }
+    expect(json.output[0]?.type).toBe("function_call")
+  })
+
+  test("Codex fallback uses malformed web_search arguments as the raw query", async () => {
+    const home = await mkdtemp(path.join(os.tmpdir(), "codex-web-search-home-"))
+    process.env.HOME = home
+    await writeCodexConfig('COPILOT_WEB_SEARCH_BACKEND = "gpt-5.5"\n')
+    const captured: Array<CapturedRequest> = []
+    const upstream = new Response(
+      JSON.stringify({
+        id: "chatcmpl-raw-web-search-call",
+        model: "claude-opus-4.6",
+        choices: [
+          {
+            message: {
+              role: "assistant",
+              content: null,
+              tool_calls: [
+                {
+                  id: "call_search",
+                  type: "function",
+                  function: { name: "web_search", arguments: "GitHub Copilot docs" },
+                },
+              ],
+            },
+          },
+        ],
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    )
+    const { app, restore: r } = buildApp(captured, upstream)
+    restore = r
+
+    const res = await app.request("/v1/responses", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-opus-4.6",
+        input: "search the web",
+        tools: [{ type: "web_search", external_web_access: false }],
+        stream: false,
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    expect(captured).toHaveLength(2)
+    const searchBody = captured[1].body as { input: string; model: string }
+    expect(searchBody.model).toBe("gpt-5.5")
+    expect(searchBody.input).toContain("GitHub Copilot docs")
+  })
+
   test("Codex fallback web_search returns configuration guidance when backend is missing", async () => {
     const home = await mkdtemp(path.join(os.tmpdir(), "codex-web-search-home-"))
     process.env.HOME = home
@@ -400,6 +594,7 @@ model_reasoning_effort = "high"
         model: "claude-opus-4.6",
         input: "search the web for GitHub Copilot docs",
         tools: [{ type: "web_search", external_web_access: false }],
+        tool_choice: { type: "web_search" },
         stream: false,
       }),
     })
@@ -456,6 +651,7 @@ model_reasoning_effort = "high"
         model: "claude-opus-4.6",
         input: "search the web for GitHub Copilot docs",
         tools: [{ type: "web_search", external_web_access: false }],
+        tool_choice: { type: "web_search" },
         stream: false,
       }),
     })
@@ -500,6 +696,7 @@ model_reasoning_effort = "high"
         model: "claude-opus-4.6",
         input: "search the web for GitHub Copilot docs",
         tools: [{ type: "web_search", external_web_access: false }],
+        tool_choice: { type: "web_search" },
         stream: false,
       }),
     })

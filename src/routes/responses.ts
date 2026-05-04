@@ -10,7 +10,7 @@ import {
 import {
   codexWebSearchResponseToSse,
   createCodexWebSearchResponse,
-  hasCodexNativeWebSearch,
+  isCodexNativeWebSearchRequested,
 } from "~/bridges/codex/web-search"
 import { normalizeResponsesSseStream } from "~/bridges/codex/normalize-stream"
 import { normalizeCodexResponsesRequest } from "~/bridges/codex/responses"
@@ -96,6 +96,33 @@ const readCodexUserConfig = async (): Promise<CodexUserConfig> => {
   return readCodexUserConfigFromDisk(configPath)
 }
 
+const getCodexWebSearchQueryFromChatResponse = (
+  chatJson: Parameters<typeof chatResponseToResponsesJson>[1],
+): string | undefined => {
+  const toolCall = chatJson.choices
+    .flatMap((choice) => choice.message.tool_calls ?? [])
+    .find((call) => call.function.name === "web_search")
+  if (!toolCall) {
+    return undefined
+  }
+
+  try {
+    const parsed = JSON.parse(toolCall.function.arguments) as unknown
+    if (
+      typeof parsed === "object"
+      && parsed !== null
+      && !Array.isArray(parsed)
+      && typeof (parsed as { query?: unknown }).query === "string"
+    ) {
+      return (parsed as { query: string }).query
+    }
+  } catch {
+    return toolCall.function.arguments
+  }
+
+  return toolCall.function.arguments
+}
+
 responsesRoutes.post("/", async (c) => {
   try {
     await checkRateLimit()
@@ -126,7 +153,7 @@ responsesRoutes.post("/", async (c) => {
 
   try {
     if (capability?.fallback === "chat-completions") {
-      if (hasCodexNativeWebSearch(payload)) {
+      if (isCodexNativeWebSearchRequested(payload)) {
         const response = await createCodexWebSearchResponse(config, payload, {
           backend: codexUserConfig.webSearchBackend,
         })
@@ -175,6 +202,30 @@ responsesRoutes.post("/", async (c) => {
       const chatJson = (await upstream.json()) as Parameters<
         typeof chatResponseToResponsesJson
       >[1]
+
+      const requestedWebSearchQuery = getCodexWebSearchQueryFromChatResponse(chatJson)
+      if (requestedWebSearchQuery) {
+        const response = await createCodexWebSearchResponse(config, payload, {
+          backend: codexUserConfig.webSearchBackend,
+          requestedQuery: requestedWebSearchQuery,
+        })
+
+        if (payload.stream) {
+          return new Response(codexWebSearchResponseToSse(response), {
+            status: 200,
+            headers: {
+              "content-type": "text/event-stream; charset=utf-8",
+              "cache-control": "no-cache",
+              connection: "keep-alive",
+            },
+          })
+        }
+
+        return new Response(JSON.stringify(response), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        })
+      }
 
       if (payload.stream) {
         const stream = synthesizeResponsesSseFromChat(payload, chatJson)

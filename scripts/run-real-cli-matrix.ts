@@ -75,6 +75,7 @@ interface ClientTraceRecord {
     stream?: unknown
   }
   response: {
+    model?: unknown
     reasoning_fields?: Array<{ path: string; value: unknown }>
     event_types?: Array<string>
     response_keys?: Array<string>
@@ -114,6 +115,10 @@ const CODEX_COMMAND = process.env.MATRIX_CODEX_BIN ?? "codex"
 const CODEX_REASONING_SUPPORT = process.env.MATRIX_CODEX_REASONING_SUPPORT !== "false"
 const TRACE_CODEX_CLIENT_RESPONSE =
   process.env.MATRIX_TRACE_CODEX_CLIENT_RESPONSE === "true"
+const BRIDGE_COMMAND = process.env.MATRIX_BRIDGE_COMMAND ?? "bun"
+const BRIDGE_ENTRY_ARGS = process.env.MATRIX_BRIDGE_ENTRY_ARGS ?
+  (JSON.parse(process.env.MATRIX_BRIDGE_ENTRY_ARGS) as Array<string>)
+: ["./src/main.ts", "start"]
 const PROJECT_CLAUDE_DIR = path.join(WORKSPACE, ".claude")
 const PROJECT_CLAUDE_SETTINGS = path.join(
   PROJECT_CLAUDE_DIR,
@@ -211,10 +216,17 @@ const pickResponseModelFromSse = (text: string): unknown => {
     if (!data || data === "[DONE]") continue
     const parsed = asRecord(parseJson(data))
     if (typeof parsed?.model === "string") return parsed.model
+    const message = asRecord(parsed?.message)
+    if (typeof message?.model === "string") return message.model
     const response = asRecord(parsed?.response)
     if (typeof response?.model === "string") return response.model
   }
   return undefined
+}
+
+const pickResponseModel = (responseJson: unknown, responseText: string): unknown => {
+  const json = asRecord(responseJson)
+  return json?.model ?? pickResponseModelFromSse(responseText)
 }
 
 const pickReasoningTokens = (responseJson: unknown): unknown => {
@@ -348,7 +360,6 @@ const createTraceProxy = async (tracePath: string) => {
       })
       const responseText = await upstream.text()
       const responseJson = parseJson(responseText)
-      const responseRecord = asRecord(responseJson)
       const contentType = upstream.headers.get("content-type") ?? undefined
       const responseMetadata = collectSseResponseMetadata(responseText)
       const record: TraceRecord = {
@@ -366,8 +377,7 @@ const createTraceProxy = async (tracePath: string) => {
           stream: requestJson.stream,
         },
         response: {
-          model:
-            responseRecord?.model ?? pickResponseModelFromSse(responseText),
+          model: pickResponseModel(responseJson, responseText),
           reasoning_tokens: pickReasoningTokens(responseJson),
           reasoning_fields: collectReasoningFields(responseJson, responseText),
           event_types: responseMetadata.event_types,
@@ -430,6 +440,7 @@ const createClientProxy = async (tracePath: string) => {
         stream: input.requestJson.stream,
       },
       response: {
+        model: pickResponseModel(responseJson, input.responseText),
         reasoning_fields: collectReasoningFields(responseJson, input.responseText),
         event_types: responseMetadata.event_types,
         response_keys: responseMetadata.response_keys,
@@ -826,6 +837,29 @@ const responseModelMatches = (
   )
 }
 
+const responseEffortMatches = (
+  testCase: MatrixCase,
+  clientTrace: ClientTraceRecord | undefined,
+  trace: TraceRecord | undefined,
+): boolean => {
+  if (!testCase.effort) return true
+
+  // Copilot does not echo a literal effort field in responses. For Opus 4.7,
+  // effort and 1M context are represented by the effective upstream model, so
+  // require both the upstream response and client-visible response to keep it.
+  if (testCase.reasoningField !== "output_config.effort") return true
+
+  if (!responseModelMatches(trace?.response.model, testCase.upstreamModel)) {
+    return false
+  }
+
+  if (testCase.client === "claude" || TRACE_CODEX_CLIENT_RESPONSE) {
+    return responseModelMatches(clientTrace?.response.model, testCase.upstreamModel)
+  }
+
+  return true
+}
+
 const claudeDisplayName = (model: string): string | undefined => {
   const match = /^claude-(opus|sonnet|haiku)-(.+)$/.exec(model)
   if (!match) return undefined
@@ -842,13 +876,18 @@ const claudeDisplayName = (model: string): string | undefined => {
 const findTrace = (
   records: Array<TraceRecord>,
   fromIndex: number,
-): TraceRecord | undefined =>
-  records
+  testCase: MatrixCase,
+): TraceRecord | undefined => {
+  const candidates = records
     .slice(fromIndex)
     .filter((record) =>
       record.path === "/chat/completions" || record.path === "/responses",
     )
-    .at(-1)
+  return candidates.findLast((record) =>
+    record.request.model === testCase.upstreamModel && effortMatches(testCase, record),
+  ) ?? candidates.findLast((record) => record.request.model === testCase.upstreamModel)
+    ?? candidates.at(-1)
+}
 
 const findClientTrace = (
   records: Array<ClientTraceRecord>,
@@ -884,6 +923,7 @@ const evaluateCase = (
       testCase.upstreamModel,
     ),
     upstream_effort: trace ? effortMatches(testCase, trace) : false,
+    response_effort: responseEffortMatches(testCase, clientTrace, trace),
     client_reasoning_preserved:
       !expectsClientTrace
       || clientReasoningPreserved(testCase, clientTrace, trace),
@@ -919,7 +959,7 @@ const printResult = (result: CaseResult): void => {
     clientTrace?.response.reasoning_fields?.map((field) => field.path).join(",") || "-"
   const status = result.ok ? "PASS" : "FAIL"
   console.log(
-    `${status} ${testCase.client.padEnd(6)} ${testCase.model.padEnd(28)} effort=${String(expectedEffort).padEnd(6)} inbound=${String(clientTrace?.path ?? "-").padEnd(13)} upstream=${String(trace?.path ?? "-").padEnd(17)} req_model=${String(trace?.request.model ?? "-").padEnd(32)} req_effort=${String(actualEffort).padEnd(6)} in_effort=${String(clientTrace?.request.reasoning_effort ?? clientTrace?.request.thinking?.budget_tokens ?? clientTrace?.request.reasoning?.effort ?? "none").padEnd(7)} resp_model=${String(trace?.response.model ?? "-").padEnd(28)} resp_reason=${String(trace?.response.reasoning_fields?.map((field) => field.path).join(",") || "-").padEnd(12)} client_reason=${clientReasoning} ${String(result.ms).padStart(6)}ms`,
+    `${status} ${testCase.client.padEnd(6)} ${testCase.model.padEnd(28)} effort=${String(expectedEffort).padEnd(6)} inbound=${String(clientTrace?.path ?? "-").padEnd(13)} upstream=${String(trace?.path ?? "-").padEnd(17)} req_model=${String(trace?.request.model ?? "-").padEnd(32)} req_effort=${String(actualEffort).padEnd(6)} in_effort=${String(clientTrace?.request.reasoning_effort ?? clientTrace?.request.thinking?.budget_tokens ?? clientTrace?.request.reasoning?.effort ?? "none").padEnd(7)} resp_model=${String(trace?.response.model ?? "-").padEnd(28)} client_model=${String(clientTrace?.response.model ?? "-").padEnd(28)} resp_reason=${String(trace?.response.reasoning_fields?.map((field) => field.path).join(",") || "-").padEnd(12)} client_reason=${clientReasoning} ${String(result.ms).padStart(6)}ms`,
   )
   if (!result.ok) {
     console.log(`     checks=${JSON.stringify(result.checks)} error=${result.error ?? ""}`)
@@ -944,10 +984,9 @@ const main = async () => {
   const { server: clientProxy, records: clientRecords } =
     await createClientProxy(clientTracePath)
   const bridge = spawn(
-    "bun",
+    BRIDGE_COMMAND,
     [
-      "./src/main.ts",
-      "start",
+      ...BRIDGE_ENTRY_ARGS,
       "--host",
       "127.0.0.1",
       "--port",
@@ -984,7 +1023,7 @@ const main = async () => {
           await runCodexCase(testCase, rootDir)
         : await runClaudeCase(testCase, rootDir)
       const clientTrace = findClientTrace(clientRecords, clientTraceStart)
-      const trace = findTrace(records, traceStart)
+      const trace = findTrace(records, traceStart, testCase)
       const result = evaluateCase(testCase, processResult, clientTrace, trace)
       results.push(result)
       printResult(result)
