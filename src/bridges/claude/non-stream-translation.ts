@@ -567,14 +567,22 @@ function translateAnthropicToolsToOpenAI(
     return undefined
   }
 
-  return anthropicTools.map((tool) => ({
-    type: "function",
-    function: {
-      name: toolNameMapper.toOpenAI(tool.name),
-      description: tool.description,
-      parameters: tool.input_schema,
-    },
-  }))
+  const tools = anthropicTools.flatMap((tool) => {
+    if (!tool.input_schema) {
+      return []
+    }
+
+    return [{
+      type: "function" as const,
+      function: {
+        name: toolNameMapper.toOpenAI(tool.name),
+        description: tool.description,
+        parameters: tool.input_schema,
+      },
+    }]
+  })
+
+  return tools.length > 0 ? tools : undefined
 }
 
 function translateAnthropicToolChoiceToOpenAI(

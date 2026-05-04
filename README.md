@@ -128,6 +128,38 @@ project-local `.claude/settings.json` and `.claude/settings.local.json` and
 applied to Claude requests only when the model supports reasoning. If it is not
 configured, Claude requests do not infer or attach a reasoning effort.
 
+## Web Search
+
+Not every Copilot model can run web search. If web search is not configured or
+the selected backend cannot search, the bridge tells the client how to configure
+`COPILOT_WEB_SEARCH_BACKEND` and does not switch models automatically.
+
+For Claude Code, configure web search in the user-level
+`~/.claude/settings.json`:
+
+```json
+{
+  "env": {
+    "COPILOT_WEB_SEARCH_BACKEND": "gpt-5.5"
+  }
+}
+```
+
+For Codex CLI, configure the same backend as a top-level key in
+`~/.codex/config.toml`:
+
+```toml
+COPILOT_WEB_SEARCH_BACKEND = "gpt-5.5"
+```
+
+| Value | Search path | Requirement |
+| ----- | ----------- | ----------- |
+| Copilot model id, for example `gpt-5.5` | Copilot HTTP `/responses` + `web_search_preview` | The model must support Copilot Responses web search. |
+| `searxng` | Local SearXNG at `http://localhost:8080` | Start SearXNG yourself. Setup guide: https://github.com/betaHi/openclaw-searxng-search. |
+| `copilot-cli` or `copilot` | GitHub Copilot CLI `web_search` tool, using the current request model | Install and sign in to GitHub Copilot CLI yourself. |
+
+The bridge never installs Docker, SearXNG, or Copilot CLI automatically.
+
 ## Start flags
 
 Common:

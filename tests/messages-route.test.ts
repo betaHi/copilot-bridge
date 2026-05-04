@@ -200,10 +200,12 @@ let restore: () => void = () => {}
 let isolatedHome: string | undefined
 const originalHome = process.env.HOME
 const originalCwd = process.cwd()
+const originalCopilotWebSearchBackend = process.env.COPILOT_WEB_SEARCH_BACKEND
 const originalModelReasoningEffort = process.env.MODEL_REASONING_EFFORT
 const originalCopilotReasoningEffort = process.env.COPILOT_REASONING_EFFORT
 
 beforeEach(async () => {
+  delete process.env.COPILOT_WEB_SEARCH_BACKEND
   delete process.env.MODEL_REASONING_EFFORT
   delete process.env.COPILOT_REASONING_EFFORT
   isolatedHome = await mkdtemp(path.join(os.tmpdir(), "claude-empty-home-"))
@@ -236,6 +238,11 @@ afterEach(async () => {
     delete process.env.COPILOT_REASONING_EFFORT
   } else {
     process.env.COPILOT_REASONING_EFFORT = originalCopilotReasoningEffort
+  }
+  if (originalCopilotWebSearchBackend === undefined) {
+    delete process.env.COPILOT_WEB_SEARCH_BACKEND
+  } else {
+    process.env.COPILOT_WEB_SEARCH_BACKEND = originalCopilotWebSearchBackend
   }
 })
 
@@ -1768,6 +1775,515 @@ describe("/v1/messages route", () => {
     }
     expect(body.tools?.[0]?.function.name).toBe("lookup")
     expect(body.tool_choice).toBe("required")
+  })
+
+  test("does not route ordinary WebSearch function tools through the native web search shim", async () => {
+    const captured: Array<CapturedRequest> = []
+    const upstream = new Response(
+      JSON.stringify({
+        id: "chatcmpl-websearch-function",
+        created: 1700000000,
+        model: "claude-sonnet-4.6",
+        choices: [
+          {
+            index: 0,
+            message: { role: "assistant", content: "OK" },
+            finish_reason: "stop",
+          },
+        ],
+        usage: { prompt_tokens: 9, completion_tokens: 2, total_tokens: 11 },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    )
+
+    const { app, restore: r } = buildApp(captured, upstream)
+    restore = r
+
+    const res = await app.request("/v1/messages", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-sonnet-4.6",
+        max_tokens: 1024,
+        messages: [{ role: "user", content: "search the web" }],
+        tools: [
+          {
+            name: "WebSearch",
+            description: "Search the web",
+            input_schema: {
+              type: "object",
+              properties: { query: { type: "string" } },
+              required: ["query"],
+            },
+          },
+        ],
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    expect(captured).toHaveLength(1)
+    expect(captured[0].url).toBe("https://upstream.test/chat/completions")
+    const body = captured[0].body as {
+      tools?: Array<{ function: { name: string } }>
+    }
+    expect(body.tools?.[0]?.function.name).toBe("WebSearch")
+  })
+
+  test("routes Anthropic native web search tools through the configured backend model", async () => {
+    runtimeState.modelOverride = "gpt-5.2"
+    await writeFile(
+      path.join(isolatedHome!, ".claude", "settings.json"),
+      JSON.stringify({ env: { COPILOT_WEB_SEARCH_BACKEND: "gpt-5.5" } }),
+    )
+    const captured: Array<CapturedRequest> = []
+    const upstream = new Response(
+      JSON.stringify({
+        id: "resp-web-search",
+        created_at: 1700000000,
+        model: "gpt-5.5-2026-04-23",
+        output: [
+          {
+            type: "web_search_call",
+            action: { type: "search", query: "test", queries: ["test"] },
+          },
+          {
+            type: "message",
+            role: "assistant",
+            content: [
+              {
+                type: "output_text",
+                text: [
+                  "1. Speedtest by Ookla - https://www.speedtest.net",
+                  "2. Fast.com - https://fast.com",
+                ].join("\n"),
+              },
+            ],
+          },
+        ],
+        usage: { input_tokens: 20, output_tokens: 12, total_tokens: 32 },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    )
+
+    const { app, restore: r } = buildApp(captured, upstream)
+    restore = r
+
+    const res = await app.request("/v1/messages", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-opus-4.6",
+        max_tokens: 1024,
+        messages: [{ role: "user", content: "search the web for test" }],
+        tools: [
+          {
+            type: "web_search_20250305",
+            name: "web_search",
+            max_uses: 5,
+          },
+        ],
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    expect(captured).toHaveLength(1)
+    expect(captured[0].url).toBe("https://upstream.test/responses")
+    const upstreamBody = captured[0].body as {
+      model?: string
+      tools?: Array<{ type: string }>
+    }
+    expect(upstreamBody.model).toBe("gpt-5.5")
+    expect(upstreamBody.tools).toEqual([{ type: "web_search_preview" }])
+
+    const json = (await res.json()) as {
+      content: Array<{
+        content?: Array<{
+          encrypted_content?: string
+          page_age?: string | null
+          title?: string
+          type?: string
+          url?: string
+        }>
+        id?: string
+        input?: { query?: string }
+        name?: string
+        type: string
+      }>
+      usage?: { server_tool_use?: { web_search_requests?: number } }
+    }
+    expect(json.content[0]).toEqual({
+      type: "server_tool_use",
+      id: expect.stringMatching(/^srvtoolu_/),
+      name: "web_search",
+      input: { query: "test" },
+    })
+    expect(json.content[1]?.type).toBe("web_search_tool_result")
+    expect(json.content[1]?.content).toEqual([
+      {
+        type: "web_search_result",
+        title: "Speedtest by Ookla",
+        url: "https://www.speedtest.net",
+        encrypted_content: "",
+        page_age: null,
+      },
+      {
+        type: "web_search_result",
+        title: "Fast.com",
+        url: "https://fast.com",
+        encrypted_content: "",
+        page_age: null,
+      },
+    ])
+    expect(json.usage?.server_tool_use?.web_search_requests).toBe(1)
+  })
+
+  test("does not use Claude default model for native web search when backend is not configured", async () => {
+    await writeFile(
+      path.join(isolatedHome!, ".claude", "settings.json"),
+      JSON.stringify({ model: "gpt-5.2" }),
+    )
+    const captured: Array<CapturedRequest> = []
+    const upstream = new Response("should not be called", { status: 500 })
+    const { app, restore: r } = buildApp(captured, upstream)
+    restore = r
+
+    const res = await app.request("/v1/messages", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "definitely-not-a-real-model",
+        max_tokens: 1024,
+        messages: [{ role: "user", content: "search the web for docs" }],
+        tools: [
+          {
+            type: "web_search_20250305",
+            name: "web_search",
+          },
+        ],
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    expect(captured).toHaveLength(0)
+
+    const json = (await res.json()) as {
+      content: Array<{ content?: { error_code?: string; type?: string }; text?: string }>
+    }
+    expect(json.content[1]?.content).toEqual({
+      type: "web_search_tool_result_error",
+      error_code: "unavailable",
+    })
+    expect(json.content[2]?.text).toContain("Claude web search is not configured.")
+    expect(json.content[2]?.text).toContain("COPILOT_WEB_SEARCH_BACKEND")
+  })
+
+  test("ignores project-local web search backend settings", async () => {
+    const projectDir = await mkdtemp(path.join(os.tmpdir(), "claude-project-web-search-"))
+    await mkdir(path.join(projectDir, ".claude"), { recursive: true })
+    await writeFile(
+      path.join(projectDir, ".claude", "settings.json"),
+      JSON.stringify({ env: { COPILOT_WEB_SEARCH_BACKEND: "gpt-5.5" } }),
+    )
+    process.chdir(projectDir)
+
+    try {
+      const captured: Array<CapturedRequest> = []
+      const upstream = new Response("should not be called", { status: 500 })
+      const { app, restore: r } = buildApp(captured, upstream)
+      restore = r
+
+      const res = await app.request("/v1/messages", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          model: "claude-opus-4.6",
+          max_tokens: 1024,
+          messages: [{ role: "user", content: "search the web for docs" }],
+          tools: [
+            {
+              type: "web_search_20250305",
+              name: "web_search",
+            },
+          ],
+        }),
+      })
+
+      expect(res.status).toBe(200)
+      expect(captured).toHaveLength(0)
+      const json = (await res.json()) as {
+        content: Array<{ text?: string }>
+      }
+      expect(json.content[2]?.text).toContain("Claude web search is not configured.")
+    } finally {
+      process.chdir(isolatedHome!)
+      await rm(projectDir, { recursive: true, force: true })
+    }
+  })
+
+  test("does not fall back to another model when Copilot HTTP web search rejects the configured model", async () => {
+    await writeFile(
+      path.join(isolatedHome!, ".claude", "settings.json"),
+      JSON.stringify({ env: { COPILOT_WEB_SEARCH_BACKEND: "claude-opus-4.7" } }),
+    )
+    const captured: Array<CapturedRequest> = []
+    const upstream = new Response(
+      JSON.stringify({
+        error: {
+          message: "model claude-opus-4.7 does not support Responses API.",
+          code: "unsupported_api_for_model",
+        },
+      }),
+      { status: 400, headers: { "content-type": "application/json" } },
+    )
+
+    const { app, restore: r } = buildApp(captured, upstream)
+    restore = r
+
+    const res = await app.request("/v1/messages", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-opus-4.7",
+        max_tokens: 1024,
+        messages: [{ role: "user", content: "search the web for test" }],
+        tools: [
+          {
+            type: "web_search_20250305",
+            name: "web_search",
+          },
+        ],
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    expect(captured).toHaveLength(1)
+    expect((captured[0].body as { model?: string }).model).toBe("claude-opus-4.7")
+
+    const json = (await res.json()) as {
+      content: Array<{
+        content?: { error_code?: string; type?: string }
+        text?: string
+        tool_use_id?: string
+        type: string
+      }>
+    }
+    expect(json.content[1]).toEqual({
+      type: "web_search_tool_result",
+      tool_use_id: expect.stringMatching(/^srvtoolu_/),
+      content: {
+        type: "web_search_tool_result_error",
+        error_code: "unavailable",
+      },
+    })
+    expect(json.content[2]?.text).toContain(
+      "Copilot HTTP web search is not available for model claude-opus-4.7.",
+    )
+    expect(json.content[2]?.text).toContain("gpt-5.5")
+    expect(json.content[2]?.text).toContain("searxng")
+    expect(json.content[2]?.text).toContain("copilot-cli")
+  })
+
+  test("can route Anthropic native web search tools through local SearXNG", async () => {
+    await writeFile(
+      path.join(isolatedHome!, ".claude", "settings.json"),
+      JSON.stringify({
+        env: {
+          COPILOT_WEB_SEARCH_BACKEND: "searxng",
+        },
+      }),
+    )
+    const captured: Array<CapturedRequest> = []
+    const upstream = new Response(
+      JSON.stringify({
+        results: [
+          {
+            title: "SearXNG",
+            url: "https://docs.searxng.org/",
+            content: "A privacy-respecting metasearch engine.",
+          },
+          {
+            title: "OpenClaw Search Skill",
+            url: "https://github.com/betaHi/openclaw-searxng-search",
+            content: "Search skill using local SearXNG.",
+          },
+        ],
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    )
+
+    const { app, restore: r } = buildApp(captured, upstream)
+    restore = r
+
+    const res = await app.request("/v1/messages", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-opus-4.6",
+        max_tokens: 1024,
+        messages: [{ role: "user", content: "search the web for searxng" }],
+        tools: [
+          {
+            type: "web_search_20250305",
+            name: "web_search",
+          },
+        ],
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    expect(captured).toHaveLength(2)
+    expect(captured[0].url).toBe("http://localhost:8080")
+    expect(captured[1].url).toBe(
+      "http://localhost:8080/search?q=searxng&format=json",
+    )
+    const json = (await res.json()) as {
+      content: Array<{
+        content?: Array<{
+          encrypted_content?: string
+          page_age?: string | null
+          title?: string
+          type?: string
+          url?: string
+        }>
+        input?: { query?: string }
+        model?: string
+        text?: string
+        type: string
+      }>
+      model?: string
+    }
+    expect(json.model).toBe("searxng")
+    expect(json.content[0]?.input?.query).toBe("searxng")
+    expect(json.content[1]?.type).toBe("web_search_tool_result")
+    expect(json.content[1]?.content).toEqual([
+      {
+        type: "web_search_result",
+        title: "SearXNG",
+        url: "https://docs.searxng.org/",
+        encrypted_content: "",
+        page_age: null,
+      },
+      {
+        type: "web_search_result",
+        title: "OpenClaw Search Skill",
+        url: "https://github.com/betaHi/openclaw-searxng-search",
+        encrypted_content: "",
+        page_age: null,
+      },
+    ])
+    expect(json.content[2]?.text).toContain(
+      "A privacy-respecting metasearch engine.",
+    )
+  })
+
+  test("returns a helpful web search error when local SearXNG is unavailable", async () => {
+    await writeFile(
+      path.join(isolatedHome!, ".claude", "settings.json"),
+      JSON.stringify({ env: { COPILOT_WEB_SEARCH_BACKEND: "searxng" } }),
+    )
+    const captured: Array<CapturedRequest> = []
+    const { app, restore: r } = buildApp(captured, () => {
+      throw new TypeError("fetch failed")
+    })
+    restore = r
+
+    const res = await app.request("/v1/messages", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-opus-4.6",
+        max_tokens: 1024,
+        messages: [{ role: "user", content: "search the web for searxng" }],
+        tools: [
+          {
+            type: "web_search_20250305",
+            name: "web_search",
+          },
+        ],
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    expect(captured).toHaveLength(1)
+    const json = (await res.json()) as {
+      content: Array<{
+        content?: { error_code?: string; type?: string }
+        text?: string
+        type: string
+      }>
+    }
+    expect(json.content[1]?.content).toEqual({
+      type: "web_search_tool_result_error",
+      error_code: "unavailable",
+    })
+    expect(json.content[2]?.text).toContain(
+      "Local SearXNG web search is not available.",
+    )
+    expect(json.content[2]?.text).toContain("http://localhost:8080")
+  })
+
+  test("streams Anthropic native web search family responses", async () => {
+    await writeFile(
+      path.join(isolatedHome!, ".claude", "settings.json"),
+      JSON.stringify({ env: { COPILOT_WEB_SEARCH_BACKEND: "gpt-5.5" } }),
+    )
+    const captured: Array<CapturedRequest> = []
+    const upstream = new Response(
+      JSON.stringify({
+        id: "resp-web-search-stream",
+        created_at: 1700000000,
+        model: "gpt-5.5-2026-04-23",
+        output: [
+          {
+            type: "web_search_call",
+            action: { type: "search", query: "latest docs" },
+          },
+          {
+            type: "message",
+            role: "assistant",
+            content: [
+              {
+                type: "output_text",
+                text: "[Docs](https://example.com/docs)",
+              },
+            ],
+          },
+        ],
+        usage: { input_tokens: 20, output_tokens: 12, total_tokens: 32 },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    )
+
+    const { app, restore: r } = buildApp(captured, upstream)
+    restore = r
+
+    const res = await app.request("/v1/messages", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-opus-4.6",
+        stream: true,
+        max_tokens: 1024,
+        messages: [{ role: "user", content: "search latest docs" }],
+        tools: [
+          {
+            type: "web_search_20260209",
+            name: "web_search",
+          },
+        ],
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    expect(captured).toHaveLength(1)
+    expect(captured[0].url).toBe("https://upstream.test/responses")
+
+    const text = await res.text()
+    expect(text).toContain("event: message_start")
+    expect(text).toContain('"type":"server_tool_use"')
+    expect(text).toContain('"type":"web_search_tool_result"')
+    expect(text).toContain('"url":"https://example.com/docs"')
+    expect(text).toContain("event: message_stop")
   })
 
   test("handles Claude Code style tool history without legacy reasoning injection", async () => {

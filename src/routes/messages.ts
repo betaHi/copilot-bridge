@@ -19,7 +19,12 @@ import {
   createAnthropicToolNameMapper,
   getToolNameMapperOptionsForModel,
 } from "~/bridges/claude/tool-names"
-import { getClaudeSettings } from "~/lib/claude-settings"
+import {
+  createClaudeWebSearchResponse,
+  hasAnthropicNativeWebSearch,
+  webSearchResponseToEvents,
+} from "~/bridges/claude/web-search"
+import { getClaudeSettings, getUserClaudeSettings } from "~/lib/claude-settings"
 import type { BridgeEnv } from "~/lib/config"
 import { BridgeNotImplementedError, HTTPError } from "~/lib/error"
 import { checkRateLimit, RateLimitError } from "~/lib/rate-limit"
@@ -53,21 +58,47 @@ messageRoutes.post("/", async (c) => {
   }
   const anthropicPayload = await c.req.json<AnthropicMessagesPayload>()
   const claudeSettings = await getClaudeSettings()
+  const userClaudeSettings = await getUserClaudeSettings()
   const effectivePayload =
     runtimeState.modelOverride ?
       { ...anthropicPayload, model: runtimeState.modelOverride }
     : anthropicPayload
-  const upstreamModel = translateModelName(effectivePayload.model, claudeSettings)
-  const toolNameMapper = createAnthropicToolNameMapper(anthropicPayload.tools, {
-    ...getToolNameMapperOptionsForModel(upstreamModel),
-  })
-  const openAIPayload = translateToOpenAI(
-    effectivePayload,
-    claudeSettings,
-    toolNameMapper,
-  )
 
   try {
+    const upstreamModel = translateModelName(effectivePayload.model, claudeSettings)
+
+    if (hasAnthropicNativeWebSearch(effectivePayload)) {
+      const webSearchResponse = await createClaudeWebSearchResponse(
+        config,
+        effectivePayload,
+        {
+          backend: userClaudeSettings.env.COPILOT_WEB_SEARCH_BACKEND,
+          copilotCliModel: upstreamModel,
+        },
+      )
+
+      if (!effectivePayload.stream) {
+        return c.json(webSearchResponse)
+      }
+
+      return streamSSE(c, async (stream) => {
+        for (const event of webSearchResponseToEvents(webSearchResponse)) {
+          await stream.writeSSE({
+            event: event.type,
+            data: JSON.stringify(event),
+          })
+        }
+      })
+    }
+
+    const toolNameMapper = createAnthropicToolNameMapper(anthropicPayload.tools, {
+      ...getToolNameMapperOptionsForModel(upstreamModel),
+    })
+    const openAIPayload = translateToOpenAI(
+      effectivePayload,
+      claudeSettings,
+      toolNameMapper,
+    )
     const response = await createChatCompletions(config, openAIPayload, {
       client: "claude",
     })

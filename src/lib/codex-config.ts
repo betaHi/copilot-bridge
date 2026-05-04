@@ -36,6 +36,7 @@ interface ApplyResult {
 export interface CodexUserConfig {
   model?: string
   modelReasoningEffort?: string
+  webSearchBackend?: string
 }
 
 export function normalizeCodexConfigReasoningEffort(
@@ -135,6 +136,8 @@ export function readCodexUserConfig(content: string): CodexUserConfig {
   if (m) out.model = m[1]
   const e = top.match(scalarRegex("model_reasoning_effort"))
   if (e) out.modelReasoningEffort = e[1]
+  const webSearchBackend = top.match(scalarRegex("COPILOT_WEB_SEARCH_BACKEND"))
+  if (webSearchBackend) out.webSearchBackend = webSearchBackend[1]
   return out
 }
 

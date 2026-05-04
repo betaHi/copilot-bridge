@@ -34,12 +34,14 @@ describe("readCodexUserConfig", () => {
   test("parses model + reasoning effort from top section", () => {
     const out = readCodexUserConfig(`model = "claude-opus-4.7"
 model_reasoning_effort = "high"
+COPILOT_WEB_SEARCH_BACKEND = "gpt-5.5"
 
 [other]
 foo = 1
 `)
     expect(out.model).toBe("claude-opus-4.7")
     expect(out.modelReasoningEffort).toBe("high")
+    expect(out.webSearchBackend).toBe("gpt-5.5")
   })
 
   test("ignores values inside the managed block", () => {

@@ -52,6 +52,35 @@ export interface AnthropicToolUseBlock {
   input: Record<string, unknown>
 }
 
+export interface AnthropicServerToolUseBlock {
+  type: "server_tool_use"
+  id: string
+  name: "web_search"
+  input: Record<string, unknown>
+}
+
+export interface AnthropicWebSearchResultBlock {
+  type: "web_search_tool_result"
+  tool_use_id: string
+  content:
+    | Array<{
+        type: "web_search_result"
+        title: string
+        url: string
+        encrypted_content?: string
+        page_age?: string | null
+      }>
+    | {
+        type: "web_search_tool_result_error"
+        error_code:
+          | "too_many_requests"
+          | "invalid_input"
+          | "max_uses_exceeded"
+          | "query_too_long"
+          | "unavailable"
+      }
+}
+
 export interface AnthropicThinkingBlock {
   type: "thinking"
   thinking: string
@@ -65,6 +94,8 @@ export type AnthropicUserContentBlock =
 export type AnthropicAssistantContentBlock =
   | AnthropicTextBlock
   | AnthropicToolUseBlock
+  | AnthropicServerToolUseBlock
+  | AnthropicWebSearchResultBlock
   | AnthropicThinkingBlock
 
 export interface AnthropicUserMessage {
@@ -106,6 +137,9 @@ export interface AnthropicResponse {
     cache_creation_input_tokens?: number
     cache_read_input_tokens?: number
     service_tier?: "standard" | "priority" | "batch"
+    server_tool_use?: {
+      web_search_requests?: number
+    }
   }
 }
 
@@ -129,6 +163,10 @@ export interface AnthropicContentBlockStartEvent {
     | (Omit<AnthropicToolUseBlock, "input"> & {
         input: Record<string, unknown>
       })
+    | (Omit<AnthropicServerToolUseBlock, "input"> & {
+        input: Record<string, unknown>
+      })
+    | AnthropicWebSearchResultBlock
     | { type: "thinking"; thinking: string }
 }
 

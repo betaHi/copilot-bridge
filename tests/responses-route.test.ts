@@ -66,6 +66,7 @@ const buildApp = (
 
 let restore: () => void = () => {}
 const originalCodexConfigPath = process.env.CODEX_CONFIG_PATH
+const originalHome = process.env.HOME
 
 afterEach(() => {
   restore()
@@ -76,7 +77,18 @@ afterEach(() => {
   } else {
     process.env.CODEX_CONFIG_PATH = originalCodexConfigPath
   }
+  if (originalHome === undefined) {
+    delete process.env.HOME
+  } else {
+    process.env.HOME = originalHome
+  }
 })
+
+const writeCodexConfig = async (content: string): Promise<void> => {
+  const configDir = await mkdtemp(path.join(os.tmpdir(), "codex-web-search-cfg-"))
+  process.env.CODEX_CONFIG_PATH = path.join(configDir, "config.toml")
+  await writeFile(process.env.CODEX_CONFIG_PATH, content)
+}
 
 describe("/v1/responses route — passthrough vs translation contract", () => {
   test("uses runtime model override without changing client config", async () => {
@@ -372,8 +384,142 @@ model_reasoning_effort = "high"
     const body = (await res.json()) as { error: { message: string } }
     expect(body.error.message).toBe("bad")
   })
+
+  test("Codex fallback web_search returns configuration guidance when backend is missing", async () => {
+    const home = await mkdtemp(path.join(os.tmpdir(), "codex-web-search-home-"))
+    process.env.HOME = home
+    const captured: Array<CapturedRequest> = []
+    const upstream = new Response("should not be called", { status: 500 })
+    const { app, restore: r } = buildApp(captured, upstream)
+    restore = r
+
+    const res = await app.request("/v1/responses", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-opus-4.6",
+        input: "search the web for GitHub Copilot docs",
+        tools: [{ type: "web_search", external_web_access: false }],
+        stream: false,
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    expect(captured).toHaveLength(0)
+    const json = (await res.json()) as {
+      output: Array<{ type: string; content?: Array<{ text?: string }> }>
+    }
+    expect(json.output[0]?.type).toBe("web_search_call")
+    const text = json.output[1]?.content?.[0]?.text ?? ""
+    expect(text).toContain("Codex web search is not configured")
+    expect(text).toContain("~/.codex/config.toml")
+    expect(text).not.toContain("~/.claude/settings.json")
+    expect(text).toContain("model id")
+    expect(text).toContain("searxng")
+    expect(text).toContain("copilot-cli")
+  })
+
+  test("Codex fallback web_search uses configured HTTP search model", async () => {
+    await writeCodexConfig('COPILOT_WEB_SEARCH_BACKEND = "gpt-5.5"\n')
+    const captured: Array<CapturedRequest> = []
+    const upstream = new Response(
+      JSON.stringify({
+        id: "resp-search",
+        created_at: 1700000000,
+        model: "gpt-5.5",
+        output: [
+          {
+            type: "web_search_call",
+            action: { query: "GitHub Copilot docs" },
+          },
+          {
+            type: "message",
+            content: [
+              {
+                type: "output_text",
+                text: "1. GitHub Copilot docs - https://docs.github.com/en/copilot",
+              },
+            ],
+          },
+        ],
+        usage: { input_tokens: 12, output_tokens: 8 },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    )
+    const { app, restore: r } = buildApp(captured, upstream)
+    restore = r
+
+    const res = await app.request("/v1/responses", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-opus-4.6",
+        input: "search the web for GitHub Copilot docs",
+        tools: [{ type: "web_search", external_web_access: false }],
+        stream: false,
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    expect(captured).toHaveLength(1)
+    expect(captured[0].url).toBe("https://upstream.test/responses")
+    const upstreamBody = captured[0].body as {
+      input: string
+      model: string
+      tools: Array<{ type: string }>
+    }
+    expect(upstreamBody.model).toBe("gpt-5.5")
+    expect(upstreamBody.tools).toEqual([{ type: "web_search_preview" }])
+    expect(upstreamBody.input).toContain("Codex CLI")
+
+    const json = (await res.json()) as {
+      model: string
+      output: Array<{ type: string; content?: Array<{ text?: string }> }>
+    }
+    expect(json.model).toBe("claude-opus-4.6")
+    expect(json.output[0]?.type).toBe("web_search_call")
+    expect(json.output[1]?.content?.[0]?.text).toContain(
+      "https://docs.github.com/en/copilot",
+    )
+  })
+
+  test("Codex fallback web_search reports unsupported HTTP search models", async () => {
+    await writeCodexConfig('COPILOT_WEB_SEARCH_BACKEND = "gpt-4o"\n')
+    const captured: Array<CapturedRequest> = []
+    const upstream = new Response(
+      JSON.stringify({ error: { message: "web search unsupported" } }),
+      { status: 400, headers: { "content-type": "application/json" } },
+    )
+    const { app, restore: r } = buildApp(captured, upstream)
+    restore = r
+
+    const res = await app.request("/v1/responses", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-opus-4.6",
+        input: "search the web for GitHub Copilot docs",
+        tools: [{ type: "web_search", external_web_access: false }],
+        stream: false,
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    expect(captured).toHaveLength(1)
+    expect(captured[0].url).toBe("https://upstream.test/responses")
+    const json = (await res.json()) as {
+      output: Array<{ type: string; content?: Array<{ text?: string }> }>
+    }
+    const text = json.output[1]?.content?.[0]?.text ?? ""
+    expect(text).toContain("Copilot HTTP web search is not available for model gpt-4o")
+    expect(text).toContain("~/.codex/config.toml")
+    expect(text).toContain("model id")
+    expect(text).toContain("searxng")
+    expect(text).toContain("copilot-cli")
+  })
 })
 
-beforeEach(() => {
-  // no-op; placeholder to keep symmetry with afterEach
+beforeEach(async () => {
+  const configDir = await mkdtemp(path.join(os.tmpdir(), "codex-route-empty-cfg-"))
+  process.env.CODEX_CONFIG_PATH = path.join(configDir, "config.toml")
 })

@@ -16,13 +16,32 @@ export interface ClaudeSettings {
 
 const getClaudeSettingsPaths = (): Array<string> => {
   const cwd = process.cwd()
-  const home = process.env.HOME ?? os.homedir()
 
   return [
-    path.join(home, ".claude", "settings.json"),
+    getUserClaudeSettingsPath(),
     path.join(cwd, ".claude", "settings.json"),
     path.join(cwd, ".claude", "settings.local.json"),
   ]
+}
+
+const getUserClaudeSettingsPath = (): string => {
+  const home = process.env.HOME ?? os.homedir()
+  return path.join(home, ".claude", "settings.json")
+}
+
+const normalizeClaudeSettings = (
+  settings: ClaudeSettingsFile | undefined,
+): ClaudeSettings => {
+  const env: Record<string, string> = {}
+
+  for (const [key, value] of Object.entries(settings?.env ?? {})) {
+    if (typeof value === "string") env[key] = value
+  }
+
+  return {
+    env,
+    model: typeof settings?.model === "string" ? settings.model : undefined,
+  }
 }
 
 const readClaudeSettingsFile = async (
@@ -91,6 +110,9 @@ export const getClaudeSettings = async (): Promise<ClaudeSettings> => {
 
   return { env: merged, model }
 }
+
+export const getUserClaudeSettings = async (): Promise<ClaudeSettings> =>
+  normalizeClaudeSettings(await readClaudeSettingsFile(getUserClaudeSettingsPath()))
 
 export const getClaudeSettingsEnv = async (): Promise<
   Record<string, string>
