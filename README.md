@@ -11,6 +11,19 @@
 > This is an unofficial bridge for the GitHub Copilot API and may break if the
 > upstream API changes.
 
+## Contents
+- [Demo](#demo)
+- [Install & run](#install--run)
+- [Configure Codex CLI](#configure-codex-cli)
+- [Configure Claude Code](#configure-claude-code)
+- [Web Search](#web-search)
+- [Start flags](#start-flags)
+- [Environment overrides](#environment-overrides)
+- [Supported models](#supported-models)
+- [Development](#development)
+- [Acknowledgements](#acknowledgements)
+- [License](#license)
+
 ## Demo
 
 ### Codex CLI
