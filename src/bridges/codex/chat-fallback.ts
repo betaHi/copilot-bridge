@@ -184,6 +184,27 @@ const WEB_SEARCH_FUNCTION_TOOL: ChatTool = {
   },
 }
 
+export const CODEX_WEB_SEARCH_AVAILABILITY_MESSAGE = "A web_search tool is available for current web information and source URLs. Use it when the user asks to search the web; do not use it for unrelated tasks."
+
+const isWebSearchToolChoice = (toolChoice: unknown): boolean => {
+  if (typeof toolChoice !== "object" || toolChoice === null || Array.isArray(toolChoice)) {
+    return false
+  }
+
+  const type = (toolChoice as { type?: unknown }).type
+  return type === "web_search" || type === "web_search_preview"
+}
+
+const translateToolChoice = (
+  toolChoice: ResponsesRequestLike["tool_choice"],
+): ChatRequestPayload["tool_choice"] => {
+  if (isWebSearchToolChoice(toolChoice)) {
+    return { type: "function", function: { name: "web_search" } }
+  }
+
+  return toolChoice as ChatRequestPayload["tool_choice"]
+}
+
 const collectText = (
   content: string | Array<ResponsesInputContentPart> | undefined,
 ): { text: string; parts: Array<ChatContentPart> } => {
@@ -299,7 +320,7 @@ export const responsesPayloadToChatPayload = (
   if (hasWebSearchTool) {
     messages.unshift({
       role: "system",
-      content: "A web_search tool is available for current web information and source URLs. Use it when the user asks to search the web; do not use it for unrelated tasks.",
+      content: CODEX_WEB_SEARCH_AVAILABILITY_MESSAGE,
     })
   }
 
@@ -313,7 +334,7 @@ export const responsesPayloadToChatPayload = (
     user: request.user,
     tools: tools.length > 0 ? tools : undefined,
     tool_choice:
-      tools && tools.length > 0 ? request.tool_choice : undefined,
+      tools && tools.length > 0 ? translateToolChoice(request.tool_choice) : undefined,
   }
 
   placeReasoning(payload, capability, request.reasoning?.effort)
@@ -323,13 +344,24 @@ export const responsesPayloadToChatPayload = (
 
 // ---------- Public: translate non-stream response ----------
 
-interface ResponsesApiResult {
+interface ResponsesWebSearchCallOutputItem {
+  id: string
+  type: "web_search_call"
+  status: "completed"
+  action: {
+    type: "search"
+    query: string
+  }
+}
+
+export interface ResponsesApiResult {
   id: string
   object: "response"
   status: "completed" | "incomplete"
   created_at: number
   model: string
   output: Array<
+    | ResponsesWebSearchCallOutputItem
     | {
         id: string
         type: "reasoning"
@@ -430,11 +462,9 @@ export const chatResponseToResponsesJson = buildResponsesResult
 const sse = (event: string, data: unknown) =>
   `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`
 
-export const synthesizeResponsesSseFromChat = (
-  request: ResponsesRequestLike,
-  chat: ChatCompletionResponse,
+export const responsesJsonToSse = (
+  result: ResponsesApiResult,
 ): ReadableStream<Uint8Array> => {
-  const result = buildResponsesResult(request, chat)
   const encoder = new TextEncoder()
   const baseResponse = {
     id: result.id,
@@ -539,3 +569,8 @@ export const synthesizeResponsesSseFromChat = (
     },
   })
 }
+
+export const synthesizeResponsesSseFromChat = (
+  request: ResponsesRequestLike,
+  chat: ChatCompletionResponse,
+): ReadableStream<Uint8Array> => responsesJsonToSse(buildResponsesResult(request, chat))

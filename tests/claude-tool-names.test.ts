@@ -48,7 +48,8 @@ describe("Claude tool name mapping", () => {
 
   test("uses the probed model-specific name profile", () => {
     expect(getClaudeToolNameMaxLength("claude-opus-4.7")).toBe(128)
-    expect(getClaudeToolNameMaxLength("claude-opus-4.6-1m")).toBe(128)
+    expect(getClaudeToolNameMaxLength("claude-opus-4.6")).toBe(64)
+    expect(getClaudeToolNameMaxLength("claude-opus-4.6-1m")).toBe(64)
     expect(getClaudeToolNameMaxLength("claude-sonnet-4")).toBe(128)
     expect(getClaudeToolNameMaxLength("claude-sonnet-4.6")).toBe(64)
     expect(getClaudeToolNameMaxLength("claude-haiku-4.5")).toBe(64)

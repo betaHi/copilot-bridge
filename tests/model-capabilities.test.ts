@@ -24,6 +24,18 @@ describe("model-capabilities: alias + capability lookup", () => {
     }
   })
 
+  test("GPT chat tool+reasoning workaround is model-specific", () => {
+    expect(
+      getModelCapability("gpt-5.4")?.requiresResponsesForChatReasoningTools,
+    ).toBe(true)
+
+    for (const id of ["gpt-5.5", "gpt-5.3-codex", "gpt-5.2", "gpt-5-mini"]) {
+      expect(
+        getModelCapability(id)?.requiresResponsesForChatReasoningTools,
+      ).toBeUndefined()
+    }
+  })
+
   test("Claude/Gemini are flagged as chat-completions fallback", () => {
     for (const id of [
       "claude-opus-4.7",

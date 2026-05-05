@@ -1,7 +1,7 @@
 <h1 align="center">copilot-bridge</h1>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/betahi-copilot-bridge"><img src="https://img.shields.io/npm/v/betahi-copilot-bridge.svg?v=0.20.6" alt="npm version"></a>
+  <a href="https://www.npmjs.com/package/betahi-copilot-bridge"><img src="https://img.shields.io/npm/v/betahi-copilot-bridge.svg?v=0.20.7" alt="npm version"></a>
   <a href="https://github.com/betahi/copilot-bridge/blob/main/LICENSE"><img src="https://img.shields.io/npm/l/betahi-copilot-bridge.svg" alt="license"></a>
 </p>
 
@@ -143,9 +143,11 @@ configured, Claude requests do not infer or attach a reasoning effort.
 
 ## Web Search
 
-Not every Copilot model can run web search. If web search is not configured or
-the selected backend cannot search, the bridge tells the client how to configure
-`COPILOT_WEB_SEARCH_BACKEND` and does not switch models automatically.
+Not every Copilot model can run web search. Bridge-managed web search is enabled
+only when `COPILOT_WEB_SEARCH_BACKEND` is present and points to a supported
+backend. If the setting is missing, empty, or names an unsupported backend, the
+bridge treats web search as unsupported and passes the model response through
+normally.
 
 For Claude Code, configure web search in the user-level
 `~/.claude/settings.json`:
@@ -170,6 +172,15 @@ COPILOT_WEB_SEARCH_BACKEND = "gpt-5.5"
 | Copilot model id, for example `gpt-5.5` | Copilot HTTP `/responses` + `web_search_preview` | The model must support Copilot Responses web search. |
 | `searxng`, use `"COPILOT_WEB_SEARCH_BACKEND": "searxng"` | Local SearXNG at `http://localhost:8080` | Start SearXNG yourself. Setup guide: https://github.com/betaHi/openclaw-searxng-search. |
 | `copilot-cli` or `copilot`, use `"COPILOT_WEB_SEARCH_BACKEND": "copilot-cli"` | GitHub Copilot CLI `web_search` tool, using the current request model | Install and sign in to GitHub Copilot CLI yourself. |
+
+Project-local Claude settings do not enable bridge-managed web search. Claude
+Code reads this setting only from the user-level `~/.claude/settings.json`; Codex
+CLI reads it only from the top level of `~/.codex/config.toml`.
+
+When a supported backend is configured, the bridge executes web search only after
+the model requests the WebSearch tool. It then sends the search context through a
+final model pass, so Claude Code and Codex CLI receive the WebSearch call plus
+the model's final reasoning/text response instead of raw search output alone.
 
 The bridge never installs Docker, SearXNG, or Copilot CLI automatically.
 

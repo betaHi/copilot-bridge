@@ -2,4 +2,6 @@ node_modules
 dist
 .DS_Store
 .agentguard/
+.tmp-live/
+.venv/
 *.tgz

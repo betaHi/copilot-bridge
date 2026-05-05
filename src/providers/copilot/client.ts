@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto"
+import { appendFile } from "node:fs/promises"
 
 import type { BridgeConfig } from "~/lib/config"
 import { BridgeNotImplementedError } from "~/lib/error"
@@ -67,6 +68,42 @@ const buildHeaders = (
   return headers
 }
 
+const parseTraceBody = (body: RequestInit["body"]): unknown => {
+  if (typeof body !== "string") {
+    return undefined
+  }
+
+  try {
+    return JSON.parse(body) as unknown
+  } catch {
+    return body
+  }
+}
+
+const traceCopilotRequest = async (
+  path: string,
+  init: RequestInit,
+  options: FetchCopilotOptions,
+  attempt: number,
+) => {
+  const traceFile = process.env.COPILOT_BRIDGE_TRACE_REQUESTS_FILE
+  if (!traceFile) {
+    return
+  }
+
+  await appendFile(
+    traceFile,
+    `${JSON.stringify({
+      attempt,
+      body: parseTraceBody(init.body),
+      method: init.method ?? "GET",
+      options,
+      path,
+      timestamp: new Date().toISOString(),
+    })}\n`,
+  )
+}
+
 export const fetchCopilot = async (
   provider: CopilotProviderContext,
   path: string,
@@ -83,6 +120,7 @@ export const fetchCopilot = async (
 
   for (let attempt = 1; attempt <= MAX_FETCH_ATTEMPTS; attempt++) {
     try {
+      await traceCopilotRequest(path, init, options, attempt)
       const response = await fetch(`${provider.baseUrl}${path}`, {
         ...init,
         headers: buildHeaders(provider, init, options),

@@ -196,6 +196,82 @@ const buildApp = (
   }
 }
 
+const chatTextResponse = (content: string, model = "claude-haiku-4.5") =>
+  new Response(
+    JSON.stringify({
+      id: "chatcmpl-text",
+      created: 1700000000,
+      model,
+      choices: [
+        {
+          index: 0,
+          message: { role: "assistant", content },
+          finish_reason: "stop",
+        },
+      ],
+      usage: { prompt_tokens: 9, completion_tokens: 2, total_tokens: 11 },
+    }),
+    { status: 200, headers: { "content-type": "application/json" } },
+  )
+
+const chatWebSearchToolCallResponse = (
+  query: string,
+  name = "WebSearch",
+  model = "claude-haiku-4.5",
+) =>
+  new Response(
+    JSON.stringify({
+      id: "chatcmpl-websearch-call",
+      created: 1700000000,
+      model,
+      choices: [
+        {
+          index: 0,
+          message: {
+            role: "assistant",
+            content: null,
+            tool_calls: [
+              {
+                id: "call_web_search",
+                type: "function",
+                function: { name, arguments: JSON.stringify({ query }) },
+              },
+            ],
+          },
+          finish_reason: "tool_calls",
+        },
+      ],
+      usage: { prompt_tokens: 9, completion_tokens: 2, total_tokens: 11 },
+    }),
+    { status: 200, headers: { "content-type": "application/json" } },
+  )
+
+const copilotWebSearchResponse = (
+  query: string,
+  text: string,
+  model = "gpt-5.5",
+) =>
+  new Response(
+    JSON.stringify({
+      id: "resp-web-search",
+      created_at: 1700000000,
+      model,
+      output: [
+        {
+          type: "web_search_call",
+          action: { type: "search", query, queries: [query] },
+        },
+        {
+          type: "message",
+          role: "assistant",
+          content: [{ type: "output_text", text }],
+        },
+      ],
+      usage: { input_tokens: 20, output_tokens: 12, total_tokens: 32 },
+    }),
+    { status: 200, headers: { "content-type": "application/json" } },
+  )
+
 let restore: () => void = () => {}
 let isolatedHome: string | undefined
 const originalHome = process.env.HOME
@@ -433,6 +509,90 @@ describe("/v1/messages route", () => {
       tools?: Array<{ function: { name: string } }>
     }
     expect(upstreamBody.tools?.[0]?.function.name).toBe(originalToolName)
+
+    const json = (await res.json()) as {
+      content: Array<{
+        id?: string
+        input?: Record<string, unknown>
+        name?: string
+        type: string
+      }>
+    }
+    expect(json.content).toContainEqual({
+      type: "tool_use",
+      id: "call_1",
+      name: originalToolName,
+      input: {},
+    })
+  })
+
+  test("shortens long MCP tool names for claude-opus-4.6 and restores them", async () => {
+    const originalToolName =
+      "mcp__plugin_microsoft-docs_microsoft-learn__microsoft_code_sample_search"
+    const captured: Array<CapturedRequest> = []
+    const upstream = (request: CapturedRequest) => {
+      const body = request.body as {
+        tools?: Array<{ function: { name: string } }>
+      }
+      const upstreamToolName = body.tools?.[0]?.function.name ?? "missing"
+      return new Response(
+        JSON.stringify({
+          id: "chatcmpl-tool-opus-46",
+          created: 1700000000,
+          model: "claude-opus-4.6",
+          choices: [
+            {
+              index: 0,
+              message: {
+                role: "assistant",
+                content: null,
+                tool_calls: [
+                  {
+                    id: "call_1",
+                    type: "function",
+                    function: { name: upstreamToolName, arguments: "{}" },
+                  },
+                ],
+              },
+              finish_reason: "tool_calls",
+            },
+          ],
+          usage: { prompt_tokens: 9, completion_tokens: 2, total_tokens: 11 },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      )
+    }
+
+    const { app, restore: r } = buildApp(captured, upstream)
+    restore = r
+
+    const res = await app.request("/v1/messages", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-opus-4.6",
+        max_tokens: 1024,
+        messages: [{ role: "user", content: "search docs" }],
+        tools: [
+          {
+            name: originalToolName,
+            description: "Search Microsoft Learn code samples",
+            input_schema: { type: "object", properties: {} },
+          },
+        ],
+        tool_choice: { type: "tool", name: originalToolName },
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    const upstreamBody = captured[0].body as {
+      tool_choice?: { function?: { name?: string } }
+      tools?: Array<{ function: { name: string } }>
+    }
+    const upstreamToolName = upstreamBody.tools?.[0]?.function.name
+    expect(upstreamToolName).not.toBe(originalToolName)
+    expect(upstreamToolName?.length).toBeLessThanOrEqual(64)
+    expect(upstreamBody.tool_choice?.function?.name).toBe(upstreamToolName)
 
     const json = (await res.json()) as {
       content: Array<{
@@ -1777,7 +1937,7 @@ describe("/v1/messages route", () => {
     expect(body.tool_choice).toBe("required")
   })
 
-  test("routes Claude Code WebSearch function tools through the configured backend model", async () => {
+  test("does not treat ordinary custom web_search tools as Claude server WebSearch", async () => {
     await writeFile(
       path.join(isolatedHome!, ".claude", "settings.json"),
       JSON.stringify({ env: { COPILOT_WEB_SEARCH_BACKEND: "gpt-5.5" } }),
@@ -1785,28 +1945,100 @@ describe("/v1/messages route", () => {
     const captured: Array<CapturedRequest> = []
     const upstream = new Response(
       JSON.stringify({
-        id: "resp-websearch-function",
-        created_at: 1700000000,
-        model: "gpt-5.5",
-        output: [
+        id: "chatcmpl-custom-web-search-tool",
+        created: 1700000000,
+        model: "claude-haiku-4.5",
+        choices: [
           {
-            type: "web_search_call",
-            action: { query: "GitHub Copilot docs" },
-          },
-          {
-            type: "message",
-            content: [
-              {
-                type: "output_text",
-                text: "1. GitHub Copilot docs - https://docs.github.com/en/copilot",
-              },
-            ],
+            index: 0,
+            message: {
+              role: "assistant",
+              content: null,
+              tool_calls: [
+                {
+                  id: "call_custom_web_search",
+                  type: "function",
+                  function: {
+                    name: "web_search",
+                    arguments: JSON.stringify({ query: "local index" }),
+                  },
+                },
+              ],
+            },
+            finish_reason: "tool_calls",
           },
         ],
-        usage: { input_tokens: 9, output_tokens: 2 },
+        usage: { prompt_tokens: 9, completion_tokens: 2, total_tokens: 11 },
       }),
       { status: 200, headers: { "content-type": "application/json" } },
     )
+
+    const { app, restore: r } = buildApp(captured, upstream)
+    restore = r
+
+    const res = await app.request("/v1/messages", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-haiku-4.5",
+        max_tokens: 1024,
+        messages: [{ role: "user", content: "use my local web_search tool" }],
+        tools: [
+          {
+            name: "web_search",
+            description: "Search a local project index",
+            input_schema: {
+              type: "object",
+              properties: { query: { type: "string" } },
+              required: ["query"],
+            },
+          },
+        ],
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    expect(captured).toHaveLength(1)
+    expect(captured[0].url).toBe("https://upstream.test/chat/completions")
+
+    const json = (await res.json()) as {
+      content: Array<{
+        id?: string
+        input?: Record<string, unknown>
+        name?: string
+        type: string
+      }>
+      usage?: { server_tool_use?: { web_search_requests?: number } }
+    }
+    expect(json.content).toContainEqual({
+      type: "tool_use",
+      id: "call_custom_web_search",
+      name: "web_search",
+      input: { query: "local index" },
+    })
+    expect(json.usage?.server_tool_use?.web_search_requests).toBeUndefined()
+  })
+
+  test("routes Claude Code WebSearch function tools through the configured backend model", async () => {
+    await writeFile(
+      path.join(isolatedHome!, ".claude", "settings.json"),
+      JSON.stringify({ env: { COPILOT_WEB_SEARCH_BACKEND: "gpt-5.5" } }),
+    )
+    const captured: Array<CapturedRequest> = []
+    let chatCalls = 0
+    const upstream = (request: CapturedRequest) => {
+      if (request.url === "https://upstream.test/chat/completions") {
+        chatCalls += 1
+        return chatCalls === 1 ?
+            chatWebSearchToolCallResponse("GitHub Copilot docs")
+          : chatTextResponse("The Copilot docs are at https://docs.github.com/en/copilot.")
+      }
+
+      return copilotWebSearchResponse(
+        "GitHub Copilot docs",
+        "1. GitHub Copilot docs - https://docs.github.com/en/copilot",
+      )
+    }
 
     const { app, restore: r } = buildApp(captured, upstream)
     restore = r
@@ -1833,18 +2065,217 @@ describe("/v1/messages route", () => {
     })
 
     expect(res.status).toBe(200)
-    expect(captured).toHaveLength(1)
-    expect(captured[0].url).toBe("https://upstream.test/responses")
-    const body = captured[0].body as { model: string; tools: Array<{ type: string }> }
+    expect(captured).toHaveLength(3)
+    expect(captured[0].url).toBe("https://upstream.test/chat/completions")
+    const decisionBody = captured[0].body as {
+      stream?: boolean
+      tools?: Array<{ function: { name: string } }>
+    }
+    expect(decisionBody.stream).toBe(false)
+    expect(decisionBody.tools?.[0]?.function.name).toBe("WebSearch")
+
+    expect(captured[1].url).toBe("https://upstream.test/responses")
+    const body = captured[1].body as { model: string; tools: Array<{ type: string }> }
     expect(body.model).toBe("gpt-5.5")
     expect(body.tools).toEqual([{ type: "web_search_preview" }])
+
+    expect(captured[2].url).toBe("https://upstream.test/chat/completions")
+    const finalBody = captured[2].body as {
+      messages: Array<{ content?: string; role: string }>
+      tool_choice?: unknown
+      tools?: unknown
+    }
+    expect(finalBody.tools).toBeUndefined()
+    expect(finalBody.tool_choice).toBeUndefined()
+    expect(finalBody.messages.at(-1)?.role).toBe("system")
+    expect(finalBody.messages.at(-1)?.content).toContain(
+      "Trusted bridge retrieval context",
+    )
+    expect(finalBody.messages.at(-1)?.content).toContain(
+      "Query: GitHub Copilot docs",
+    )
+    expect(finalBody.messages.some((message) => message.role === "assistant")).toBe(false)
     const json = (await res.json()) as {
-      content: Array<{ type: string; content?: Array<{ url?: string }> }>
+      content: Array<{ type: string; content?: Array<{ url?: string }>; text?: string }>
       usage?: { server_tool_use?: { web_search_requests?: number } }
     }
     expect(json.content[0]?.type).toBe("server_tool_use")
     expect(json.content[1]?.type).toBe("web_search_tool_result")
+    expect(json.content[2]?.text).toBe(
+      "The Copilot docs are at https://docs.github.com/en/copilot.",
+    )
     expect(json.usage?.server_tool_use?.web_search_requests).toBe(1)
+  })
+
+  test("does not run Claude Code WebSearch just because the tool is available", async () => {
+    await writeFile(
+      path.join(isolatedHome!, ".claude", "settings.json"),
+      JSON.stringify({ env: { COPILOT_WEB_SEARCH_BACKEND: "gpt-5.5" } }),
+    )
+    const captured: Array<CapturedRequest> = []
+    const upstream = chatTextResponse("Hello!")
+
+    const { app, restore: r } = buildApp(captured, upstream)
+    restore = r
+
+    const res = await app.request("/v1/messages", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-haiku-4.5",
+        max_tokens: 1024,
+        messages: [{ role: "user", content: "hello" }],
+        tools: [
+          {
+            name: "WebSearch",
+            description: "Search the web",
+            input_schema: {
+              type: "object",
+              properties: { query: { type: "string" } },
+              required: ["query"],
+            },
+          },
+        ],
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    expect(captured).toHaveLength(1)
+    expect(captured[0].url).toBe("https://upstream.test/chat/completions")
+
+    const json = (await res.json()) as {
+      content: Array<{ text?: string; type: string }>
+      usage?: { server_tool_use?: { web_search_requests?: number } }
+    }
+    expect(json.content).toEqual([{ type: "text", text: "Hello!" }])
+    expect(json.usage?.server_tool_use?.web_search_requests).toBeUndefined()
+  })
+
+  test("streams normal Claude Code responses when WebSearch is available but not selected", async () => {
+    await writeFile(
+      path.join(isolatedHome!, ".claude", "settings.json"),
+      JSON.stringify({ env: { COPILOT_WEB_SEARCH_BACKEND: "gpt-5.5" } }),
+    )
+    const captured: Array<CapturedRequest> = []
+    const upstream = chatTextResponse("Hello from the model.")
+
+    const { app, restore: r } = buildApp(captured, upstream)
+    restore = r
+
+    const res = await app.request("/v1/messages", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-haiku-4.5",
+        stream: true,
+        max_tokens: 1024,
+        messages: [{ role: "user", content: "hello" }],
+        tools: [
+          {
+            name: "WebSearch",
+            description: "Search the web",
+            input_schema: {
+              type: "object",
+              properties: { query: { type: "string" } },
+              required: ["query"],
+            },
+          },
+        ],
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    expect(captured).toHaveLength(1)
+    expect(captured[0].url).toBe("https://upstream.test/chat/completions")
+
+    const text = await res.text()
+    expect(text).toContain("event: message_start")
+    expect(text).toContain("Hello from the model.")
+    expect(text).not.toContain("server_tool_use")
+    expect(text).not.toContain("web_search_tool_result")
+    expect(text).toContain("event: message_stop")
+  })
+
+  test("does not run Claude Code WebSearch for negated search requests", async () => {
+    await writeFile(
+      path.join(isolatedHome!, ".claude", "settings.json"),
+      JSON.stringify({ env: { COPILOT_WEB_SEARCH_BACKEND: "gpt-5.5" } }),
+    )
+    const captured: Array<CapturedRequest> = []
+    const upstream = chatTextResponse("No search run.")
+
+    const { app, restore: r } = buildApp(captured, upstream)
+    restore = r
+
+    const res = await app.request("/v1/messages", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-haiku-4.5",
+        max_tokens: 1024,
+        messages: [{ role: "user", content: "i don't want you to search the web" }],
+        tools: [
+          {
+            name: "WebSearch",
+            description: "Search the web",
+            input_schema: {
+              type: "object",
+              properties: { query: { type: "string" } },
+              required: ["query"],
+            },
+          },
+        ],
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    expect(captured).toHaveLength(1)
+    expect(captured[0].url).toBe("https://upstream.test/chat/completions")
+
+    const json = (await res.json()) as { content: Array<{ text?: string; type: string }> }
+    expect(json.content).toEqual([{ type: "text", text: "No search run." }])
+  })
+
+  test("does not run Claude Code WebSearch for local search requests", async () => {
+    await writeFile(
+      path.join(isolatedHome!, ".claude", "settings.json"),
+      JSON.stringify({ env: { COPILOT_WEB_SEARCH_BACKEND: "gpt-5.5" } }),
+    )
+    const captured: Array<CapturedRequest> = []
+    const upstream = chatTextResponse("I can search the local files.")
+
+    const { app, restore: r } = buildApp(captured, upstream)
+    restore = r
+
+    const res = await app.request("/v1/messages", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-haiku-4.5",
+        max_tokens: 1024,
+        messages: [{ role: "user", content: "search files for TODO" }],
+        tools: [
+          {
+            name: "WebSearch",
+            description: "Search the web",
+            input_schema: {
+              type: "object",
+              properties: { query: { type: "string" } },
+              required: ["query"],
+            },
+          },
+        ],
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    expect(captured).toHaveLength(1)
+    expect(captured[0].url).toBe("https://upstream.test/chat/completions")
+
+    const json = (await res.json()) as { content: Array<{ text?: string; type: string }> }
+    expect(json.content).toEqual([
+      { type: "text", text: "I can search the local files." },
+    ])
   })
 
   test("routes Anthropic native web search tools through the configured backend model", async () => {
@@ -1854,34 +2285,24 @@ describe("/v1/messages route", () => {
       JSON.stringify({ env: { COPILOT_WEB_SEARCH_BACKEND: "gpt-5.5" } }),
     )
     const captured: Array<CapturedRequest> = []
-    const upstream = new Response(
-      JSON.stringify({
-        id: "resp-web-search",
-        created_at: 1700000000,
-        model: "gpt-5.5-2026-04-23",
-        output: [
-          {
-            type: "web_search_call",
-            action: { type: "search", query: "test", queries: ["test"] },
-          },
-          {
-            type: "message",
-            role: "assistant",
-            content: [
-              {
-                type: "output_text",
-                text: [
-                  "1. Speedtest by Ookla - https://www.speedtest.net",
-                  "2. Fast.com - https://fast.com",
-                ].join("\n"),
-              },
-            ],
-          },
-        ],
-        usage: { input_tokens: 20, output_tokens: 12, total_tokens: 32 },
-      }),
-      { status: 200, headers: { "content-type": "application/json" } },
-    )
+    let chatCalls = 0
+    const upstream = (request: CapturedRequest) => {
+      if (request.url === "https://upstream.test/chat/completions") {
+        chatCalls += 1
+        return chatCalls === 1 ?
+            chatWebSearchToolCallResponse("test", "web_search", "gpt-5.2")
+          : chatTextResponse("Speedtest and Fast.com are relevant options.", "gpt-5.2")
+      }
+
+      return copilotWebSearchResponse(
+        "test",
+        [
+          "1. Speedtest by Ookla - https://www.speedtest.net",
+          "2. Fast.com - https://fast.com",
+        ].join("\n"),
+        "gpt-5.5-2026-04-23",
+      )
+    }
 
     const { app, restore: r } = buildApp(captured, upstream)
     restore = r
@@ -1904,14 +2325,23 @@ describe("/v1/messages route", () => {
     })
 
     expect(res.status).toBe(200)
-    expect(captured).toHaveLength(1)
-    expect(captured[0].url).toBe("https://upstream.test/responses")
+    expect(captured).toHaveLength(3)
+    expect(captured[0].url).toBe("https://upstream.test/chat/completions")
+    expect(captured[1].url).toBe("https://upstream.test/responses")
+    expect(captured[2].url).toBe("https://upstream.test/chat/completions")
     const upstreamBody = captured[0].body as {
+      model?: string
+      tools?: Array<{ function?: { name?: string }; type: string }>
+    }
+    expect(upstreamBody.model).toBe("gpt-5.2")
+    expect(upstreamBody.tools?.[0]?.function?.name).toBe("web_search")
+
+    const searchBody = captured[1].body as {
       model?: string
       tools?: Array<{ type: string }>
     }
-    expect(upstreamBody.model).toBe("gpt-5.5")
-    expect(upstreamBody.tools).toEqual([{ type: "web_search_preview" }])
+    expect(searchBody.model).toBe("gpt-5.5")
+    expect(searchBody.tools).toEqual([{ type: "web_search_preview" }])
 
     const json = (await res.json()) as {
       content: Array<{
@@ -1925,6 +2355,7 @@ describe("/v1/messages route", () => {
         id?: string
         input?: { query?: string }
         name?: string
+        text?: string
         type: string
       }>
       usage?: { server_tool_use?: { web_search_requests?: number } }
@@ -1952,16 +2383,209 @@ describe("/v1/messages route", () => {
         page_age: null,
       },
     ])
+    expect(json.content[2]?.text).toBe("Speedtest and Fast.com are relevant options.")
     expect(json.usage?.server_tool_use?.web_search_requests).toBe(1)
   })
 
-  test("does not use Claude default model for native web search when backend is not configured", async () => {
+  test("keeps WebSearch final answer requests free of prior tool-call protocol", async () => {
+    await writeFile(
+      path.join(isolatedHome!, ".claude", "settings.json"),
+      JSON.stringify({ env: { COPILOT_WEB_SEARCH_BACKEND: "gpt-5.5" } }),
+    )
+    const captured: Array<CapturedRequest> = []
+    let chatCalls = 0
+    const upstream = (request: CapturedRequest) => {
+      if (request.url === "https://upstream.test/chat/completions") {
+        chatCalls += 1
+        return chatCalls === 1 ?
+            chatWebSearchToolCallResponse("GitHub Copilot documentation URL", "web_search")
+          : chatTextResponse("The Copilot docs are available at https://docs.github.com/en/copilot.")
+      }
+
+      return copilotWebSearchResponse(
+        "GitHub Copilot documentation URL",
+        "GitHub Copilot docs - https://docs.github.com/en/copilot",
+        "gpt-5.5-2026-04-23",
+      )
+    }
+
+    const { app, restore: r } = buildApp(captured, upstream)
+    restore = r
+
+    const res = await app.request("/v1/messages", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-sonnet-4",
+        max_tokens: 1024,
+        messages: [
+          { role: "user", content: "Inspect local context first." },
+          {
+            role: "assistant",
+            content: [
+              {
+                type: "tool_use",
+                id: "toolu_local_1",
+                name: "LocalLookup",
+                input: { key: "regression-policy" },
+              },
+            ],
+          },
+          {
+            role: "user",
+            content: [
+              {
+                type: "tool_result",
+                tool_use_id: "toolu_local_1",
+                content: "Local context: preserve ordinary tool-use behavior.",
+              },
+              {
+                type: "text",
+                text: "Now use web_search to find the GitHub Copilot documentation URL.",
+              },
+            ],
+          },
+        ],
+        tools: [
+          {
+            name: "LocalLookup",
+            description: "Look up local bridge context",
+            input_schema: {
+              type: "object",
+              properties: { key: { type: "string" } },
+              required: ["key"],
+            },
+          },
+          { type: "web_search_20250305", name: "web_search" },
+        ],
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    expect(captured).toHaveLength(3)
+    expect(captured[2].url).toBe("https://upstream.test/chat/completions")
+    const finalBody = captured[2].body as {
+      messages: Array<{ content?: string | null; role: string; tool_calls?: unknown }>
+      tool_choice?: unknown
+      tools?: unknown
+    }
+    expect(finalBody.tools).toBeUndefined()
+    expect(finalBody.tool_choice).toBeUndefined()
+    expect(finalBody.messages.some((message) => message.role === "tool")).toBe(false)
+    expect(finalBody.messages.some((message) => message.tool_calls)).toBe(false)
+    expect(finalBody.messages).toContainEqual({
+      role: "developer",
+      content: [
+        "Prior local tool result from the conversation:",
+        "Local context: preserve ordinary tool-use behavior.",
+      ].join("\n"),
+    })
+
+    const json = (await res.json()) as { content: Array<{ text?: string; type: string }> }
+    expect(json.content.map((block) => block.type)).toEqual([
+      "server_tool_use",
+      "web_search_tool_result",
+      "text",
+    ])
+    expect(json.content[2]?.text).toBe(
+      "The Copilot docs are available at https://docs.github.com/en/copilot.",
+    )
+  })
+
+  test("retries empty WebSearch results with the user query and returns Claude final text", async () => {
+    await writeFile(
+      path.join(isolatedHome!, ".claude", "settings.json"),
+      JSON.stringify({ env: { COPILOT_WEB_SEARCH_BACKEND: "gpt-5.5" } }),
+    )
+    const captured: Array<CapturedRequest> = []
+    let chatCalls = 0
+    let searchCalls = 0
+    const upstream = (request: CapturedRequest) => {
+      if (request.url === "https://upstream.test/chat/completions") {
+        chatCalls += 1
+        if (chatCalls === 1) {
+          return chatWebSearchToolCallResponse("ambiguous local context", "web_search")
+        }
+
+        return chatCalls === 2 ?
+            chatTextResponse("I don't have the ability to search the web or browse the internet.")
+          : chatTextResponse("The GitHub Copilot docs are at https://docs.github.com/en/copilot.")
+      }
+
+      searchCalls += 1
+      return searchCalls === 1 ?
+          copilotWebSearchResponse(
+            "ambiguous local context",
+            "",
+            "gpt-5.5-2026-04-23",
+          )
+        : copilotWebSearchResponse(
+            "GitHub Copilot documentation URL",
+            "GitHub Copilot docs - https://docs.github.com/en/copilot",
+            "gpt-5.5-2026-04-23",
+          )
+    }
+
+    const { app, restore: r } = buildApp(captured, upstream)
+    restore = r
+
+    const res = await app.request("/v1/messages", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-opus-4.7",
+        max_tokens: 1024,
+        messages: [
+          {
+            role: "user",
+            content: "Use web_search to find the GitHub Copilot documentation URL.",
+          },
+        ],
+        tools: [{ type: "web_search_20250305", name: "web_search" }],
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    expect(captured).toHaveLength(4)
+    expect(captured[1].url).toBe("https://upstream.test/responses")
+    expect(captured[2].url).toBe("https://upstream.test/responses")
+    expect(captured[3].url).toBe("https://upstream.test/chat/completions")
+    expect((captured[1].body as { input?: string }).input).toContain(
+      "Requested web search query: ambiguous local context",
+    )
+    expect((captured[2].body as { input?: string }).input).toContain(
+      "Requested web search query: Use web_search to find the GitHub Copilot documentation URL.",
+    )
+    const finalBody = captured[3].body as {
+      messages: Array<{ content?: string | null; role: string; tool_calls?: unknown }>
+    }
+    expect(finalBody.messages.some((message) => message.role === "tool")).toBe(false)
+    expect(finalBody.messages.some((message) => message.tool_calls)).toBe(false)
+    expect(finalBody.messages.some((message) =>
+      message.role === "developer"
+      && typeof message.content === "string"
+      && message.content.includes("Prior local tool result"),
+    )).toBe(false)
+    const json = (await res.json()) as {
+      content: Array<{ text?: string; type: string }>
+    }
+    expect(json.content.map((block) => block.type)).toEqual([
+      "server_tool_use",
+      "web_search_tool_result",
+      "text",
+    ])
+    expect(json.content[2]?.text).toBe(
+      "I don't have the ability to search the web or browse the internet.",
+    )
+  })
+
+  test("passes through Claude WebSearch when backend is not configured", async () => {
     await writeFile(
       path.join(isolatedHome!, ".claude", "settings.json"),
       JSON.stringify({ model: "gpt-5.2" }),
     )
     const captured: Array<CapturedRequest> = []
-    const upstream = new Response("should not be called", { status: 500 })
+    const upstream = chatWebSearchToolCallResponse("docs", "web_search", "gpt-5.2")
     const { app, restore: r } = buildApp(captured, upstream)
     restore = r
 
@@ -1982,17 +2606,57 @@ describe("/v1/messages route", () => {
     })
 
     expect(res.status).toBe(200)
-    expect(captured).toHaveLength(0)
+    expect(captured).toHaveLength(1)
+    expect(captured[0].url).toBe("https://upstream.test/chat/completions")
 
     const json = (await res.json()) as {
-      content: Array<{ content?: { error_code?: string; type?: string }; text?: string }>
+      content: Array<{ id?: string; input?: Record<string, unknown>; name?: string; type: string }>
+      usage?: { server_tool_use?: { web_search_requests?: number } }
     }
-    expect(json.content[1]?.content).toEqual({
-      type: "web_search_tool_result_error",
-      error_code: "unavailable",
+    expect(json.content).toContainEqual({
+      type: "tool_use",
+      id: "call_web_search",
+      name: "web_search",
+      input: { query: "docs" },
     })
-    expect(json.content[2]?.text).toContain("Claude web search is not configured.")
-    expect(json.content[2]?.text).toContain("COPILOT_WEB_SEARCH_BACKEND")
+    expect(json.usage?.server_tool_use?.web_search_requests).toBeUndefined()
+  })
+
+  test("passes through Claude WebSearch when backend is empty", async () => {
+    await writeFile(
+      path.join(isolatedHome!, ".claude", "settings.json"),
+      JSON.stringify({ env: { COPILOT_WEB_SEARCH_BACKEND: "   " } }),
+    )
+    const captured: Array<CapturedRequest> = []
+    const upstream = chatWebSearchToolCallResponse("docs", "web_search")
+    const { app, restore: r } = buildApp(captured, upstream)
+    restore = r
+
+    const res = await app.request("/v1/messages", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-opus-4.6",
+        max_tokens: 1024,
+        messages: [{ role: "user", content: "search the web for docs" }],
+        tools: [{ type: "web_search_20250305", name: "web_search" }],
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    expect(captured).toHaveLength(1)
+    expect(captured[0].url).toBe("https://upstream.test/chat/completions")
+    const json = (await res.json()) as {
+      content: Array<{ id?: string; input?: Record<string, unknown>; name?: string; type: string }>
+      usage?: { server_tool_use?: { web_search_requests?: number } }
+    }
+    expect(json.content).toContainEqual({
+      type: "tool_use",
+      id: "call_web_search",
+      name: "web_search",
+      input: { query: "docs" },
+    })
+    expect(json.usage?.server_tool_use?.web_search_requests).toBeUndefined()
   })
 
   test("ignores project-local web search backend settings", async () => {
@@ -2006,7 +2670,7 @@ describe("/v1/messages route", () => {
 
     try {
       const captured: Array<CapturedRequest> = []
-      const upstream = new Response("should not be called", { status: 500 })
+      const upstream = chatWebSearchToolCallResponse("docs", "web_search")
       const { app, restore: r } = buildApp(captured, upstream)
       restore = r
 
@@ -2027,32 +2691,32 @@ describe("/v1/messages route", () => {
       })
 
       expect(res.status).toBe(200)
-      expect(captured).toHaveLength(0)
+      expect(captured).toHaveLength(1)
+      expect(captured[0].url).toBe("https://upstream.test/chat/completions")
       const json = (await res.json()) as {
-        content: Array<{ text?: string }>
+        content: Array<{ id?: string; input?: Record<string, unknown>; name?: string; type: string }>
+        usage?: { server_tool_use?: { web_search_requests?: number } }
       }
-      expect(json.content[2]?.text).toContain("Claude web search is not configured.")
+      expect(json.content).toContainEqual({
+        type: "tool_use",
+        id: "call_web_search",
+        name: "web_search",
+        input: { query: "docs" },
+      })
+      expect(json.usage?.server_tool_use?.web_search_requests).toBeUndefined()
     } finally {
       process.chdir(isolatedHome!)
       await rm(projectDir, { recursive: true, force: true })
     }
   })
 
-  test("does not fall back to another model when Copilot HTTP web search rejects the configured model", async () => {
+  test("passes through Claude WebSearch when backend model is unsupported", async () => {
     await writeFile(
       path.join(isolatedHome!, ".claude", "settings.json"),
       JSON.stringify({ env: { COPILOT_WEB_SEARCH_BACKEND: "claude-opus-4.7" } }),
     )
     const captured: Array<CapturedRequest> = []
-    const upstream = new Response(
-      JSON.stringify({
-        error: {
-          message: "model claude-opus-4.7 does not support Responses API.",
-          code: "unsupported_api_for_model",
-        },
-      }),
-      { status: 400, headers: { "content-type": "application/json" } },
-    )
+    const upstream = chatWebSearchToolCallResponse("test", "web_search", "claude-opus-4.7")
 
     const { app, restore: r } = buildApp(captured, upstream)
     restore = r
@@ -2075,30 +2739,25 @@ describe("/v1/messages route", () => {
 
     expect(res.status).toBe(200)
     expect(captured).toHaveLength(1)
-    expect((captured[0].body as { model?: string }).model).toBe("claude-opus-4.7")
+    expect(captured[0].url).toBe("https://upstream.test/chat/completions")
 
     const json = (await res.json()) as {
       content: Array<{
-        content?: { error_code?: string; type?: string }
+        id?: string
+        input?: Record<string, unknown>
         text?: string
-        tool_use_id?: string
+        name?: string
         type: string
       }>
+      usage?: { server_tool_use?: { web_search_requests?: number } }
     }
-    expect(json.content[1]).toEqual({
-      type: "web_search_tool_result",
-      tool_use_id: expect.stringMatching(/^srvtoolu_/),
-      content: {
-        type: "web_search_tool_result_error",
-        error_code: "unavailable",
-      },
+    expect(json.content).toContainEqual({
+      type: "tool_use",
+      id: "call_web_search",
+      name: "web_search",
+      input: { query: "test" },
     })
-    expect(json.content[2]?.text).toContain(
-      "Copilot HTTP web search is not available for model claude-opus-4.7.",
-    )
-    expect(json.content[2]?.text).toContain("gpt-5.5")
-    expect(json.content[2]?.text).toContain("searxng")
-    expect(json.content[2]?.text).toContain("copilot-cli")
+    expect(json.usage?.server_tool_use?.web_search_requests).toBeUndefined()
   })
 
   test("can route Anthropic native web search tools through local SearXNG", async () => {
@@ -2111,23 +2770,33 @@ describe("/v1/messages route", () => {
       }),
     )
     const captured: Array<CapturedRequest> = []
-    const upstream = new Response(
-      JSON.stringify({
-        results: [
-          {
-            title: "SearXNG",
-            url: "https://docs.searxng.org/",
-            content: "A privacy-respecting metasearch engine.",
-          },
-          {
-            title: "OpenClaw Search Skill",
-            url: "https://github.com/betaHi/openclaw-searxng-search",
-            content: "Search skill using local SearXNG.",
-          },
-        ],
-      }),
-      { status: 200, headers: { "content-type": "application/json" } },
-    )
+    let chatCalls = 0
+    const upstream = (request: CapturedRequest) => {
+      if (request.url === "https://upstream.test/chat/completions") {
+        chatCalls += 1
+        return chatCalls === 1 ?
+            chatWebSearchToolCallResponse("searxng", "web_search")
+          : chatTextResponse("SearXNG is a privacy-respecting metasearch engine.")
+      }
+
+      return new Response(
+        JSON.stringify({
+          results: [
+            {
+              title: "SearXNG",
+              url: "https://docs.searxng.org/",
+              content: "A privacy-respecting metasearch engine.",
+            },
+            {
+              title: "OpenClaw Search Skill",
+              url: "https://github.com/betaHi/openclaw-searxng-search",
+              content: "Search skill using local SearXNG.",
+            },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      )
+    }
 
     const { app, restore: r } = buildApp(captured, upstream)
     restore = r
@@ -2149,11 +2818,13 @@ describe("/v1/messages route", () => {
     })
 
     expect(res.status).toBe(200)
-    expect(captured).toHaveLength(2)
-    expect(captured[0].url).toBe("http://localhost:8080")
-    expect(captured[1].url).toBe(
+    expect(captured).toHaveLength(4)
+    expect(captured[0].url).toBe("https://upstream.test/chat/completions")
+    expect(captured[1].url).toBe("http://localhost:8080")
+    expect(captured[2].url).toBe(
       "http://localhost:8080/search?q=searxng&format=json",
     )
+    expect(captured[3].url).toBe("https://upstream.test/chat/completions")
     const json = (await res.json()) as {
       content: Array<{
         content?: Array<{
@@ -2170,7 +2841,6 @@ describe("/v1/messages route", () => {
       }>
       model?: string
     }
-    expect(json.model).toBe("searxng")
     expect(json.content[0]?.input?.query).toBe("searxng")
     expect(json.content[1]?.type).toBe("web_search_tool_result")
     expect(json.content[1]?.content).toEqual([
@@ -2189,8 +2859,8 @@ describe("/v1/messages route", () => {
         page_age: null,
       },
     ])
-    expect(json.content[2]?.text).toContain(
-      "A privacy-respecting metasearch engine.",
+    expect(json.content[2]?.text).toBe(
+      "SearXNG is a privacy-respecting metasearch engine.",
     )
   })
 
@@ -2200,7 +2870,15 @@ describe("/v1/messages route", () => {
       JSON.stringify({ env: { COPILOT_WEB_SEARCH_BACKEND: "searxng" } }),
     )
     const captured: Array<CapturedRequest> = []
-    const { app, restore: r } = buildApp(captured, () => {
+    let chatCalls = 0
+    const { app, restore: r } = buildApp(captured, (request) => {
+      if (request.url === "https://upstream.test/chat/completions") {
+        chatCalls += 1
+        return chatCalls === 1 ?
+            chatWebSearchToolCallResponse("searxng", "web_search")
+          : chatTextResponse("Local SearXNG was unavailable during search.")
+      }
+
       throw new TypeError("fetch failed")
     })
     restore = r
@@ -2222,7 +2900,10 @@ describe("/v1/messages route", () => {
     })
 
     expect(res.status).toBe(200)
-    expect(captured).toHaveLength(1)
+    expect(captured).toHaveLength(3)
+    expect(captured[0].url).toBe("https://upstream.test/chat/completions")
+    expect(captured[1].url).toBe("http://localhost:8080")
+    expect(captured[2].url).toBe("https://upstream.test/chat/completions")
     const json = (await res.json()) as {
       content: Array<{
         content?: { error_code?: string; type?: string }
@@ -2234,10 +2915,7 @@ describe("/v1/messages route", () => {
       type: "web_search_tool_result_error",
       error_code: "unavailable",
     })
-    expect(json.content[2]?.text).toContain(
-      "Local SearXNG web search is not available.",
-    )
-    expect(json.content[2]?.text).toContain("http://localhost:8080")
+    expect(json.content[2]?.text).toBe("Local SearXNG was unavailable during search.")
   })
 
   test("streams Anthropic native web search family responses", async () => {
@@ -2246,31 +2924,21 @@ describe("/v1/messages route", () => {
       JSON.stringify({ env: { COPILOT_WEB_SEARCH_BACKEND: "gpt-5.5" } }),
     )
     const captured: Array<CapturedRequest> = []
-    const upstream = new Response(
-      JSON.stringify({
-        id: "resp-web-search-stream",
-        created_at: 1700000000,
-        model: "gpt-5.5-2026-04-23",
-        output: [
-          {
-            type: "web_search_call",
-            action: { type: "search", query: "latest docs" },
-          },
-          {
-            type: "message",
-            role: "assistant",
-            content: [
-              {
-                type: "output_text",
-                text: "[Docs](https://example.com/docs)",
-              },
-            ],
-          },
-        ],
-        usage: { input_tokens: 20, output_tokens: 12, total_tokens: 32 },
-      }),
-      { status: 200, headers: { "content-type": "application/json" } },
-    )
+    let chatCalls = 0
+    const upstream = (request: CapturedRequest) => {
+      if (request.url === "https://upstream.test/chat/completions") {
+        chatCalls += 1
+        return chatCalls === 1 ?
+            chatWebSearchToolCallResponse("latest docs", "web_search")
+          : chatTextResponse("The latest docs are at https://example.com/docs.")
+      }
+
+      return copilotWebSearchResponse(
+        "latest docs",
+        "[Docs](https://example.com/docs)",
+        "gpt-5.5-2026-04-23",
+      )
+    }
 
     const { app, restore: r } = buildApp(captured, upstream)
     restore = r
@@ -2282,7 +2950,7 @@ describe("/v1/messages route", () => {
         model: "claude-opus-4.6",
         stream: true,
         max_tokens: 1024,
-        messages: [{ role: "user", content: "search latest docs" }],
+        messages: [{ role: "user", content: "search the web for latest docs" }],
         tools: [
           {
             type: "web_search_20260209",
@@ -2293,14 +2961,17 @@ describe("/v1/messages route", () => {
     })
 
     expect(res.status).toBe(200)
-    expect(captured).toHaveLength(1)
-    expect(captured[0].url).toBe("https://upstream.test/responses")
+    expect(captured).toHaveLength(3)
+    expect(captured[0].url).toBe("https://upstream.test/chat/completions")
+    expect(captured[1].url).toBe("https://upstream.test/responses")
+    expect(captured[2].url).toBe("https://upstream.test/chat/completions")
 
     const text = await res.text()
     expect(text).toContain("event: message_start")
     expect(text).toContain('"type":"server_tool_use"')
     expect(text).toContain('"type":"web_search_tool_result"')
     expect(text).toContain('"url":"https://example.com/docs"')
+    expect(text).toContain("The latest docs are at https://example.com/docs.")
     expect(text).toContain("event: message_stop")
   })
 

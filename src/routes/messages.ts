@@ -4,6 +4,7 @@ import { streamSSE } from "hono/streaming"
 
 import {
   type AnthropicMessagesPayload,
+  type AnthropicResponse,
   type AnthropicStreamState,
 } from "~/bridges/claude/anthropic-types"
 import {
@@ -20,8 +21,14 @@ import {
   getToolNameMapperOptionsForModel,
 } from "~/bridges/claude/tool-names"
 import {
-  createClaudeWebSearchResponse,
+  createAnthropicWebSearchResponse,
+  createClaudeWebSearchExecution,
+  getClaudeWebSearchToolCallFromChatResponse,
+  getWebSearchResultText,
   hasAnthropicNativeWebSearch,
+  isSupportedWebSearchBackend,
+  prepareAnthropicWebSearchDecisionPayload,
+  type SearchExecutionResult,
   webSearchResponseToEvents,
 } from "~/bridges/claude/web-search"
 import { getClaudeSettings, getUserClaudeSettings } from "~/lib/claude-settings"
@@ -34,6 +41,8 @@ import { getTokenCount } from "~/lib/tokenizer"
 import type {
   ChatCompletionChunk,
   ChatCompletionResponse,
+  ChatCompletionsPayload,
+  Message,
 } from "~/providers/copilot/chat-types"
 import { createChatCompletions } from "~/services/copilot/create-chat-completions"
 
@@ -45,6 +54,74 @@ const isNonStreamingResponse = (
   typeof response === "object"
   && response !== null
   && Object.hasOwn(response, "choices")
+
+const createWebSearchResultContextMessage = (
+  search: SearchExecutionResult,
+): Message => ({
+  role: "system",
+  content: [
+    "Trusted bridge retrieval context: the assistant selected web_search, and copilot-bridge executed it.",
+    "Use this context for the final answer. Do not describe it as user-provided or injected. Do not call web_search again.",
+    "If the user requested a specific output format, answer using only matching information from this context.",
+    "If the user asked for a URL only, output only that URL with no surrounding text.",
+    "",
+    `Query: ${search.query}`,
+    "",
+    getWebSearchResultText(search),
+  ].join("\n"),
+})
+
+const createFinalWebSearchPayload = (
+  payload: ChatCompletionsPayload,
+  search: SearchExecutionResult,
+): ChatCompletionsPayload => {
+  const messages = payload.messages.flatMap<Message>((message) => {
+    if (message.role === "tool") {
+      return [
+        {
+          role: "developer",
+          content: [
+            "Prior local tool result from the conversation:",
+            String(message.content ?? ""),
+          ].join("\n"),
+        },
+      ]
+    }
+
+    if (message.tool_calls && message.tool_calls.length > 0) {
+      return message.content ? [{ ...message, tool_calls: undefined }] : []
+    }
+
+    return [message]
+  })
+
+  return {
+    ...payload,
+    stream: false,
+    tools: undefined,
+    tool_choice: undefined,
+    messages: [
+      ...messages,
+      createWebSearchResultContextMessage(search),
+    ],
+  }
+}
+
+const mergeWebSearchAndFinalResponse = (
+  searchResponse: ReturnType<typeof createAnthropicWebSearchResponse>,
+  finalResponse: ReturnType<typeof translateToAnthropic>,
+) => ({
+  ...finalResponse,
+  content: [...searchResponse.content.slice(0, 2), ...finalResponse.content],
+  usage: {
+    ...finalResponse.usage,
+    input_tokens:
+      searchResponse.usage.input_tokens + finalResponse.usage.input_tokens,
+    output_tokens:
+      searchResponse.usage.output_tokens + finalResponse.usage.output_tokens,
+    server_tool_use: { web_search_requests: 1 },
+  },
+})
 
 messageRoutes.post("/", async (c) => {
   const config = c.get("config")
@@ -67,22 +144,85 @@ messageRoutes.post("/", async (c) => {
   try {
     const upstreamModel = translateModelName(effectivePayload.model, claudeSettings)
 
-    if (hasAnthropicNativeWebSearch(effectivePayload)) {
-      const webSearchResponse = await createClaudeWebSearchResponse(
-        config,
-        effectivePayload,
-        {
-          backend: userClaudeSettings.env.COPILOT_WEB_SEARCH_BACKEND,
-          copilotCliModel: upstreamModel,
-        },
-      )
+    const toolNameMapper = createAnthropicToolNameMapper(anthropicPayload.tools, {
+      ...getToolNameMapperOptionsForModel(upstreamModel),
+    })
+    const webSearchBackend = userClaudeSettings.env.COPILOT_WEB_SEARCH_BACKEND
+    const shouldLetModelDecideWebSearch =
+      hasAnthropicNativeWebSearch(effectivePayload)
+      && isSupportedWebSearchBackend(webSearchBackend)
+    const decisionPayload =
+      shouldLetModelDecideWebSearch ?
+        prepareAnthropicWebSearchDecisionPayload(effectivePayload)
+      : effectivePayload
+    const openAIPayload = translateToOpenAI(
+      decisionPayload,
+      claudeSettings,
+      toolNameMapper,
+    )
+    if (shouldLetModelDecideWebSearch) {
+      openAIPayload.stream = false
+    }
+    const response = await createChatCompletions(config, openAIPayload, {
+      client: "claude",
+    })
+
+    if (isNonStreamingResponse(response)) {
+      const webSearchToolCall = shouldLetModelDecideWebSearch ?
+        getClaudeWebSearchToolCallFromChatResponse(response, toolNameMapper)
+      : undefined
+      let anthropicResponse: AnthropicResponse
+
+      if (webSearchToolCall) {
+        const search = await createClaudeWebSearchExecution(
+          config,
+          effectivePayload,
+          {
+            backend: webSearchBackend,
+            copilotCliModel: upstreamModel,
+          },
+          webSearchToolCall.query,
+        )
+        const searchResponse = createAnthropicWebSearchResponse(search)
+
+        const finalResponse = await createChatCompletions(
+          config,
+          createFinalWebSearchPayload(
+            openAIPayload,
+            search,
+          ),
+          { client: "claude" },
+        )
+
+        if (!isNonStreamingResponse(finalResponse)) {
+          throw new HTTPError(
+            "Claude web search final answer request unexpectedly streamed",
+            new Response("Claude web search final answer request unexpectedly streamed", {
+              status: 502,
+              headers: { "content-type": "text/plain" },
+            }),
+          )
+        }
+
+        const finalAnthropicResponse = translateToAnthropic(
+          finalResponse,
+          toolNameMapper,
+        )
+
+        anthropicResponse = mergeWebSearchAndFinalResponse(
+          searchResponse,
+          finalAnthropicResponse,
+        )
+      } else {
+        anthropicResponse = translateToAnthropic(response, toolNameMapper)
+      }
 
       if (!effectivePayload.stream) {
-        return c.json(webSearchResponse)
+        return c.json(anthropicResponse)
       }
 
       return streamSSE(c, async (stream) => {
-        for (const event of webSearchResponseToEvents(webSearchResponse)) {
+        for (const event of webSearchResponseToEvents(anthropicResponse)) {
           await stream.writeSSE({
             event: event.type,
             data: JSON.stringify(event),
@@ -91,20 +231,14 @@ messageRoutes.post("/", async (c) => {
       })
     }
 
-    const toolNameMapper = createAnthropicToolNameMapper(anthropicPayload.tools, {
-      ...getToolNameMapperOptionsForModel(upstreamModel),
-    })
-    const openAIPayload = translateToOpenAI(
-      effectivePayload,
-      claudeSettings,
-      toolNameMapper,
-    )
-    const response = await createChatCompletions(config, openAIPayload, {
-      client: "claude",
-    })
-
-    if (isNonStreamingResponse(response)) {
-      return c.json(translateToAnthropic(response, toolNameMapper))
+    if (shouldLetModelDecideWebSearch) {
+      throw new HTTPError(
+        "Claude web search model-decision request unexpectedly streamed",
+        new Response("Claude web search model-decision request unexpectedly streamed", {
+          status: 502,
+          headers: { "content-type": "text/plain" },
+        }),
+      )
     }
 
     return streamSSE(c, async (stream) => {

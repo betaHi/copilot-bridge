@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto"
 
 import {
   createWebSearchExecution,
+  getWebSearchResultText,
   type SearchExecutionResult,
   type WebSearchExecutionRequest,
 } from "~/bridges/claude/web-search"
@@ -13,6 +14,8 @@ interface CodexWebSearchOptions {
   backend?: string
   requestedQuery?: string
 }
+
+export interface CodexWebSearchExecutionOptions extends CodexWebSearchOptions {}
 
 interface ResponsesOutputTextPart {
   type: "output_text"
@@ -189,29 +192,14 @@ export const isCodexNativeWebSearchRequested = (
     && hasOnlyCodexNativeWebSearchTools(request.tools)
 }
 
-const fallbackSearchText = (search: SearchExecutionResult): string => {
-  if (search.text) {
-    return search.text
-  }
-
-  if (search.results.length === 0) {
-    return "Web search did not return search results."
-  }
-
-  return [
-    `Web search results for query: "${search.query}"`,
-    "",
-    ...search.results.map(
-      (result, index) => `${index + 1}. ${result.title} - ${result.url}`,
-    ),
-  ].join("\n")
-}
+export const getCodexWebSearchResultText = (search: SearchExecutionResult): string =>
+  getWebSearchResultText(search)
 
 const buildCodexWebSearchResponse = (
   request: ResponsesRequestLike,
   search: SearchExecutionResult,
 ): CodexWebSearchResponse => {
-  const text = fallbackSearchText(search)
+  const text = getCodexWebSearchResultText(search)
   const output: Array<CodexWebSearchOutputItem> = [
     {
       id: `ws_${randomUUID()}`,
@@ -242,6 +230,15 @@ const buildCodexWebSearchResponse = (
     },
   }
 }
+
+export const createCodexWebSearchCallOutputItem = (
+  search: SearchExecutionResult,
+): CodexWebSearchOutputItem => ({
+  id: `ws_${randomUUID()}`,
+  type: "web_search_call",
+  status: "completed",
+  action: { type: "search", query: search.query },
+})
 
 const sse = (event: string, data: unknown) =>
   `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`
@@ -333,7 +330,21 @@ export async function createCodexWebSearchResponse(
   request: ResponsesRequestLike,
   options: CodexWebSearchOptions,
 ): Promise<CodexWebSearchResponse> {
-  const search = await createWebSearchExecution(
+  const search = await createCodexWebSearchExecution(
+    config,
+    request,
+    options,
+  )
+
+  return buildCodexWebSearchResponse(request, search)
+}
+
+export async function createCodexWebSearchExecution(
+  config: BridgeConfig,
+  request: ResponsesRequestLike,
+  options: CodexWebSearchExecutionOptions,
+): Promise<SearchExecutionResult> {
+  return createWebSearchExecution(
     config,
     createExecutionRequest(request, options.requestedQuery),
     {
@@ -341,6 +352,4 @@ export async function createCodexWebSearchResponse(
       copilotCliModel: request.model,
     },
   )
-
-  return buildCodexWebSearchResponse(request, search)
 }

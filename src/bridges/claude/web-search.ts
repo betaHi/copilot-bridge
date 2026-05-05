@@ -10,7 +10,13 @@ import type {
   AnthropicStreamEventData,
   AnthropicWebSearchResultBlock,
 } from "~/bridges/claude/anthropic-types"
+import type { AnthropicToolNameMapper } from "~/bridges/claude/tool-names"
 import type { BridgeConfig } from "~/lib/config"
+import { getModelCapability } from "~/lib/model-capabilities"
+import type {
+  ChatCompletionResponse,
+  ToolCall,
+} from "~/providers/copilot/chat-types"
 import {
   fetchCopilot,
   getCopilotProviderContext,
@@ -79,9 +85,14 @@ interface CommandExecutionFailure extends CommandExecutionResult {
   error: unknown
 }
 
-interface WebSearchOptions {
+export interface WebSearchOptions {
   backend?: string
   copilotCliModel: string
+}
+
+export interface ClaudeWebSearchToolCall {
+  query: string
+  toolCall: ToolCall
 }
 
 export interface WebSearchExecutionRequest {
@@ -103,6 +114,18 @@ type WebSearchBackend =
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value)
 
+const WEB_SEARCH_INPUT_SCHEMA = {
+  type: "object",
+  properties: {
+    query: {
+      type: "string",
+      description: "The web search query.",
+    },
+  },
+  required: ["query"],
+  additionalProperties: false,
+}
+
 export const isAnthropicNativeWebSearchTool = (tool: unknown): boolean => {
   if (!isRecord(tool)) {
     return false
@@ -118,6 +141,77 @@ export const isAnthropicNativeWebSearchTool = (tool: unknown): boolean => {
 export const hasAnthropicNativeWebSearch = (
   payload: AnthropicMessagesPayload,
 ): boolean => payload.tools?.some(isAnthropicNativeWebSearchTool) ?? false
+
+const isAnthropicWebSearchToolName = (name: string): boolean =>
+  name === "web_search" || name === CLAUDE_CODE_WEB_SEARCH_TOOL_NAME
+
+export const prepareAnthropicWebSearchDecisionPayload = (
+  payload: AnthropicMessagesPayload,
+): AnthropicMessagesPayload => {
+  if (!hasAnthropicNativeWebSearch(payload)) {
+    return payload
+  }
+
+  return {
+    ...payload,
+    tools: payload.tools?.map((tool) =>
+      isAnthropicNativeWebSearchTool(tool) ?
+        {
+          ...tool,
+          input_schema: tool.input_schema ?? WEB_SEARCH_INPUT_SCHEMA,
+        }
+      : tool,
+    ),
+  }
+}
+
+const getQueryFromToolArguments = (value: string): string | undefined => {
+  const trimmed = value.trim()
+  if (!trimmed) {
+    return undefined
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed) as unknown
+    if (
+      isRecord(parsed)
+      && typeof parsed.query === "string"
+      && parsed.query.trim()
+    ) {
+      return parsed.query.trim()
+    }
+  } catch {
+    return trimmed
+  }
+
+  return trimmed
+}
+
+export const getClaudeWebSearchToolCallFromChatResponse = (
+  response: ChatCompletionResponse,
+  toolNameMapper: AnthropicToolNameMapper,
+): ClaudeWebSearchToolCall | undefined => {
+  const toolCall = response.choices
+    .flatMap((choice) => choice.message.tool_calls ?? [])
+    .find((call) =>
+      isAnthropicWebSearchToolName(
+        toolNameMapper.toAnthropic(call.function.name),
+      ),
+    )
+
+  if (!toolCall) {
+    return undefined
+  }
+
+  const query = getQueryFromToolArguments(toolCall.function.arguments)
+  return query ? { query, toolCall } : undefined
+}
+
+export const getClaudeWebSearchQueryFromChatResponse = (
+  response: ChatCompletionResponse,
+  toolNameMapper: AnthropicToolNameMapper,
+): string | undefined =>
+  getClaudeWebSearchToolCallFromChatResponse(response, toolNameMapper)?.query
 
 const textFromContent = (
   content: AnthropicMessagesPayload["messages"][number]["content"],
@@ -135,7 +229,10 @@ const textFromContent = (
     .join("\n\n")
 }
 
-const buildSearchInput = (payload: AnthropicMessagesPayload): string => {
+const buildSearchInput = (
+  payload: AnthropicMessagesPayload,
+  requestedQuery: string,
+): string => {
   const systemText =
     typeof payload.system === "string" ? payload.system
     : Array.isArray(payload.system) ? payload.system.map((block) => block.text).join("\n\n")
@@ -148,6 +245,7 @@ const buildSearchInput = (payload: AnthropicMessagesPayload): string => {
   return [
     "You are fulfilling an Anthropic web_search server tool request for Claude Code.",
     "Search the web using the provided web_search_preview tool.",
+    `Requested web search query: ${requestedQuery}`,
     "Return useful search results as plain text lines in this exact shape:",
     "1. Title - https://example.com/page",
     "Include only real source URLs from the search results.",
@@ -160,14 +258,19 @@ const buildSearchInput = (payload: AnthropicMessagesPayload): string => {
 
 const createAnthropicSearchExecutionRequest = (
   payload: AnthropicMessagesPayload,
-): WebSearchExecutionRequest => ({
-  clientName: "Claude",
-  maxOutputTokens: payload.max_tokens,
-  requestedQuery: getRequestedQuery(payload),
-  searchInput: buildSearchInput(payload),
-  temperature: payload.temperature,
-  topP: payload.top_p,
-})
+  requestedQuery?: string,
+): WebSearchExecutionRequest => {
+  const query = requestedQuery?.trim() || getRequestedQuery(payload)
+
+  return {
+    clientName: "Claude",
+    maxOutputTokens: payload.max_tokens,
+    requestedQuery: query,
+    searchInput: buildSearchInput(payload, query),
+    temperature: payload.temperature,
+    topP: payload.top_p,
+  }
+}
 
 const getRequestedQuery = (payload: AnthropicMessagesPayload): string => {
   const lastUserMessage = [...payload.messages]
@@ -267,6 +370,11 @@ const formatSearchResultsText = (
   ].join("\n")
 }
 
+export const getWebSearchResultText = (search: SearchExecutionResult): string => {
+  const formattedResults = formatSearchResultsText(search.results, search.query)
+  return formattedResults || search.text || "Web search did not return search results."
+}
+
 const buildSearchResultBlock = (
   toolUseId: string,
   results: Array<SearchResult>,
@@ -288,7 +396,7 @@ const buildSearchResultBlock = (
       },
 })
 
-const createAnthropicWebSearchResponse = (
+export const createAnthropicWebSearchResponse = (
   search: SearchExecutionResult,
 ): AnthropicResponse => {
   const toolUseId = `srvtoolu_${randomUUID().replaceAll("-", "")}`
@@ -352,6 +460,23 @@ const parseWebSearchBackend = (backend: string | undefined): WebSearchBackend =>
   }
 
   return { type: "copilot-http", model: value }
+}
+
+export const isSupportedWebSearchBackend = (
+  backend: string | undefined,
+): boolean => {
+  const parsed = parseWebSearchBackend(backend)
+
+  if (parsed.type === "not-configured") {
+    return false
+  }
+
+  if (parsed.type === "searxng" || parsed.type === "copilot-cli") {
+    return true
+  }
+
+  const capability = getModelCapability(parsed.model)
+  return Boolean(capability && capability.fallback !== "chat-completions")
 }
 
 const createNotConfiguredSearchExecution = (
@@ -419,6 +544,15 @@ const createCopilotSearchExecution = async (
   const upstream = (await response.json()) as ResponsesWebSearchResponse
   const text = getResponseText(upstream)
   const query = getSearchQuery(upstream, request)
+  const results = parseSearchResults(text)
+
+  if (results.length === 0 && !text.trim()) {
+    return createFailedSearchExecution(
+      request,
+      upstream.model,
+      "Copilot HTTP web search did not return search results.",
+    )
+  }
 
   return {
     id: upstream.id,
@@ -426,7 +560,7 @@ const createCopilotSearchExecution = async (
     model: upstream.model,
     outputTokens: upstream.usage?.output_tokens ?? 0,
     query,
-    results: parseSearchResults(text),
+    results,
     text,
   }
 }
@@ -743,15 +877,49 @@ export async function createWebSearchExecution(
     : await createCopilotSearchExecution(config, request, backend.model)
 }
 
+export async function createClaudeWebSearchExecution(
+  config: BridgeConfig,
+  payload: AnthropicMessagesPayload,
+  options: WebSearchOptions,
+  requestedQuery?: string,
+): Promise<SearchExecutionResult> {
+  const search = await createWebSearchExecution(
+    config,
+    createAnthropicSearchExecutionRequest(payload, requestedQuery),
+    options,
+  )
+
+  const fallbackQuery = getRequestedQuery(payload)
+  const shouldRetryWithUserQuery =
+    search.results.length === 0
+    && requestedQuery?.trim()
+    && fallbackQuery
+    && fallbackQuery !== requestedQuery.trim()
+
+  if (!shouldRetryWithUserQuery) {
+    return search
+  }
+
+  const retry = await createWebSearchExecution(
+    config,
+    createAnthropicSearchExecutionRequest(payload, fallbackQuery),
+    options,
+  )
+
+  return retry.results.length > 0 ? retry : search
+}
+
 export async function createClaudeWebSearchResponse(
   config: BridgeConfig,
   payload: AnthropicMessagesPayload,
   options: WebSearchOptions,
+  requestedQuery?: string,
 ): Promise<AnthropicResponse> {
-  const search = await createWebSearchExecution(
+  const search = await createClaudeWebSearchExecution(
     config,
-    createAnthropicSearchExecutionRequest(payload),
+    payload,
     options,
+    requestedQuery,
   )
 
   return createAnthropicWebSearchResponse(search)

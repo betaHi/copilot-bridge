@@ -259,6 +259,146 @@ describe("reasoning matrix: /v1/chat/completions", () => {
       }
     }
   })
+
+  test("routes only flagged GPT tool requests with reasoning through responses", async () => {
+    const captured: Array<CapturedRequest> = []
+    const { app, restore: r } = buildApp("chat-completions", captured)
+    restore = r
+
+    const res = await app.request("/v1/chat/completions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "gpt-5.4",
+        max_tokens: 32,
+        messages: [{ role: "user", content: "Reply with OK" }],
+        reasoning_effort: "high",
+        tools: [
+          {
+            type: "function",
+            function: {
+              name: "lookup",
+              description: "Look up a value",
+              parameters: { type: "object", properties: {} },
+            },
+          },
+        ],
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    expect(captured[0].url).toBe("https://upstream.test/responses")
+    const body = captured[0].body as {
+      reasoning?: { effort?: ReasoningEffort }
+      reasoning_effort?: ReasoningEffort
+      tools?: Array<{ name?: string; type?: string }>
+    }
+    expect(body.reasoning?.effort).toBe("high")
+    expect(body.reasoning_effort).toBeUndefined()
+    expect(body.tools?.[0]).toMatchObject({ type: "function", name: "lookup" })
+  })
+
+  test("does not inherit GPT-5.4 tool+reasoning workaround for other GPT chat models", async () => {
+    const captured: Array<CapturedRequest> = []
+    const { app, restore: r } = buildApp("chat-completions", captured)
+    restore = r
+
+    const res = await app.request("/v1/chat/completions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "gpt-5.2",
+        max_tokens: 32,
+        messages: [{ role: "user", content: "Reply with OK" }],
+        reasoning_effort: "high",
+        tools: [
+          {
+            type: "function",
+            function: {
+              name: "lookup",
+              description: "Look up a value",
+              parameters: { type: "object", properties: {} },
+            },
+          },
+        ],
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    expect(captured[0].url).toBe("https://upstream.test/chat/completions")
+    const body = captured[0].body as {
+      max_completion_tokens?: number
+      reasoning_effort?: ReasoningEffort
+      tools?: Array<{ function?: { name?: string }; type?: string }>
+    }
+    expect(body.max_completion_tokens).toBe(32)
+    expect(body.reasoning_effort).toBe("high")
+    expect(body.tools?.[0].function?.name).toBe("lookup")
+  })
+
+  test("keeps Claude tool+reasoning requests on chat completions", async () => {
+    const captured: Array<CapturedRequest> = []
+    const { app, restore: r } = buildApp("chat-completions", captured)
+    restore = r
+
+    const res = await app.request("/v1/chat/completions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-opus-4.6",
+        max_tokens: 32,
+        messages: [{ role: "user", content: "Reply with OK" }],
+        reasoning_effort: "high",
+        tools: [
+          {
+            type: "function",
+            function: {
+              name: "lookup",
+              description: "Look up a value",
+              parameters: { type: "object", properties: {} },
+            },
+          },
+        ],
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    expect(captured[0].url).toBe("https://upstream.test/chat/completions")
+    const body = captured[0].body as {
+      reasoning_effort?: ReasoningEffort
+      tools?: Array<{ function?: { name?: string }; type?: string }>
+    }
+    expect(body.reasoning_effort).toBe("high")
+    expect(body.tools?.[0].function?.name).toBe("lookup")
+  })
+
+  test("normalizes public Claude 1M chat alias before upstream request", async () => {
+    const captured: Array<CapturedRequest> = []
+    const { app, restore: r } = buildApp("chat-completions", captured)
+    restore = r
+
+    const res = await app.request("/v1/chat/completions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-opus-4.7-1m",
+        max_tokens: 32,
+        messages: [{ role: "user", content: "Reply with OK" }],
+        reasoning_effort: "high",
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    expect(captured[0].url).toBe("https://upstream.test/chat/completions")
+    const body = captured[0].body as {
+      model?: string
+      output_config?: { effort?: ReasoningEffort }
+      reasoning_effort?: ReasoningEffort
+    }
+    expect(body.model).toBe("claude-opus-4.7-1m-internal")
+    expect(body.output_config?.effort).toBe("high")
+    expect(body.reasoning_effort).toBeUndefined()
+  })
 })
 
 describe("reasoning matrix: /v1/messages", () => {

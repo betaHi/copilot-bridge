@@ -37,6 +37,10 @@ export interface ModelCapability {
   // - "output_config.effort" (claude-opus-4.7 family)
   // Has no effect when reasoning is undefined.
   reasoningField?: "reasoning_effort" | "output_config.effort"
+  // Some Copilot chat models reject function tools when reasoning_effort is
+  // present even though each feature works independently. For those exact
+  // models, translate the OpenAI-compatible request through /responses.
+  requiresResponsesForChatReasoningTools?: boolean
 }
 
 export const MODEL_CAPABILITIES: ReadonlyArray<ModelCapability> = [
@@ -49,6 +53,7 @@ export const MODEL_CAPABILITIES: ReadonlyArray<ModelCapability> = [
   },
   {
     id: "gpt-5.4",
+    requiresResponsesForChatReasoningTools: true,
     reasoning: {
       supported: ["low", "medium", "high", "xhigh"],
       default: "medium",

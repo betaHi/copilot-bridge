@@ -4,7 +4,11 @@ import { events } from "fetch-event-stream"
 import type { BridgeConfig } from "~/lib/config"
 import { HTTPError } from "~/lib/error"
 import { getClaudeSettingsEnv } from "~/lib/claude-settings"
-import { clampReasoningEffort } from "~/lib/model-capabilities"
+import {
+  clampReasoningEffort,
+  getModelCapability,
+  resolveModelId,
+} from "~/lib/model-capabilities"
 import { runtimeState } from "~/lib/state"
 import {
   summarizeToolsForDiagnostics,
@@ -143,10 +147,11 @@ const getRequestedReasoningEffort = (
     client,
     claudeSettingsEnv,
   )
+  const configured = normalizeReasoningEffort(configuredReasoningEffort)
 
   const requestedReasoningEffort =
-    payload.reasoning_effort
-    ?? normalizeReasoningEffort(configuredReasoningEffort)
+    configured
+    ?? payload.reasoning_effort
 
   return sanitizeReasoningEffortForModel(payload.model, requestedReasoningEffort)
 }
@@ -164,10 +169,11 @@ const getRequestedClaudeOpus47Effort = (
     client,
     claudeSettingsEnv,
   )
+  const configured = normalizeClaudeOpus47Effort(configuredReasoningEffort)
 
   const requested =
-    normalizeClaudeOpus47Effort(payload.reasoning_effort)
-    ?? normalizeClaudeOpus47Effort(configuredReasoningEffort)
+    configured
+    ?? normalizeClaudeOpus47Effort(payload.reasoning_effort)
     ?? payload.output_config?.effort
 
   if (!requested) {
@@ -237,16 +243,6 @@ const buildRequestPayload = (
     client,
   )
 
-  const reasoningEffort =
-    (
-      usesMaxCompletionTokens(payload.model)
-      && payload.tools !== null
-      && payload.tools !== undefined
-      && payload.tools.length > 0
-    ) ?
-      undefined
-    : requestedReasoningEffort
-
   if (
     !usesMaxCompletionTokens(payload.model)
     || payload.max_tokens === null
@@ -264,7 +260,7 @@ const buildRequestPayload = (
           }
         : payload.output_config,
       reasoning_effort:
-        shouldAttachReasoningEffort ? reasoningEffort : undefined,
+        shouldAttachReasoningEffort ? requestedReasoningEffort : undefined,
       user: sanitizeUserIdentifier(payload.user),
     }
 
@@ -275,7 +271,7 @@ const buildRequestPayload = (
     ...payload,
     max_tokens: undefined,
     max_completion_tokens: payload.max_tokens,
-    reasoning_effort: reasoningEffort,
+    reasoning_effort: requestedReasoningEffort,
     user: sanitizeUserIdentifier(payload.user),
   }
 }
@@ -296,21 +292,36 @@ const messagesIncludeImage = (
       && msg.content?.some((part) => part.type === "image_url"),
   )
 
+const shouldUseResponsesForReasoningTools = (
+  payload: ChatCompletionsPayload,
+  claudeSettingsEnv: Record<string, string>,
+  client: ClientKind,
+): boolean =>
+  getModelCapability(payload.model)?.requiresResponsesForChatReasoningTools === true
+  && Boolean(payload.tools?.length)
+  && getRequestedReasoningEffort(payload, claudeSettingsEnv, client) !== undefined
+
 export const createChatCompletions = async (
   config: BridgeConfig,
   payload: ChatCompletionsPayload,
   options?: CreateChatCompletionsOptions,
 ) => {
+  const upstreamModelId = resolveModelId(payload.model)
+  const upstreamPayload =
+    upstreamModelId === payload.model ? payload : { ...payload, model: upstreamModelId }
   const provider = getCopilotProviderContext(config)
-  const enableVision = messagesIncludeImage(payload.messages)
-  const initiator = isAgentInitiator(payload.messages)
+  const enableVision = messagesIncludeImage(upstreamPayload.messages)
+  const initiator = isAgentInitiator(upstreamPayload.messages)
   const client = options?.client ?? "generic"
   const claudeSettingsEnv =
     client === "claude" ? await getClaudeSettingsEnv() : {}
-  const requestPayload = buildRequestPayload(payload, claudeSettingsEnv, client)
+  const requestPayload = buildRequestPayload(upstreamPayload, claudeSettingsEnv, client)
 
-  if (shouldUseResponsesApiForModel(payload.model)) {
-    return createResponses(provider, payload, claudeSettingsEnv, client, {
+  if (
+    shouldUseResponsesApiForModel(upstreamPayload.model)
+    || shouldUseResponsesForReasoningTools(upstreamPayload, claudeSettingsEnv, client)
+  ) {
+    return createResponses(provider, upstreamPayload, claudeSettingsEnv, client, {
       vision: enableVision,
       initiator,
     })
@@ -322,7 +333,7 @@ export const createChatCompletions = async (
     {
       method: "POST",
       headers: {
-        accept: payload.stream ? "text/event-stream" : "application/json",
+        accept: upstreamPayload.stream ? "text/event-stream" : "application/json",
         "content-type": "application/json",
       },
       body: JSON.stringify(requestPayload),
@@ -332,7 +343,7 @@ export const createChatCompletions = async (
 
   if (!response.ok) {
     if (await shouldRetryWithResponses(response)) {
-      return createResponses(provider, payload, claudeSettingsEnv, client, {
+      return createResponses(provider, upstreamPayload, claudeSettingsEnv, client, {
         vision: enableVision,
         initiator,
       })
@@ -346,7 +357,7 @@ export const createChatCompletions = async (
     throw new HTTPError("Failed to create chat completions", response)
   }
 
-  if (payload.stream) {
+  if (upstreamPayload.stream) {
     return events(response)
   }
 
