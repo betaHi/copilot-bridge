@@ -254,11 +254,11 @@ accepts upstream.
 | Model                            | Reasoning efforts                       | Notes                                  |
 | -------------------------------- | --------------------------------------- | -------------------------------------- |
 | `claude-opus-4.7`                | `medium`                                | Effort sent as `output_config.effort`. |
-| `claude-opus-4.7-1m`             | `low`, `medium`, `high`, `xhigh`        | 1M-token context window; effort sent as `output_config.effort`. |
-| `claude-opus-4.7-high`           | `high`                                  | Fixed high reasoning; effort sent as `output_config.effort`. |
-| `claude-opus-4.7-xhigh`          | `xhigh`                                 | Fixed extra-high reasoning; effort sent as `output_config.effort`. |
+| `claude-opus-4.7-1m`             | `low`, `medium`, `high`, `xhigh`        | 1M-token context window, prefer use `claude-opus-4.7-[1m]` in config|
+| `claude-opus-4.7-high`           | `high`                                  | Fixed high reasoning|
+| `claude-opus-4.7-xhigh`          | `xhigh`                                 | Fixed extra-high reasoning|
 | `claude-opus-4.6`                | `low`, `medium`, `high`                 |                                        |
-| `claude-opus-4.6-1m`             | `low`, `medium`, `high`                 | 1M-token context window.               |
+| `claude-opus-4.6-1m`             | `low`, `medium`, `high`                 | 1M-token context window, prefer use `claude-opus-4.6-[1m]` in config              |
 | `claude-sonnet-4.6`              | `low`, `medium`, `high`                 |                                        |
 | `claude-opus-4.5`                | —                                       | Reasoning not accepted upstream.       |
 | `claude-sonnet-4.5`              | —                                       | Reasoning not accepted upstream.       |
