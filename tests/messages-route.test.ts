@@ -2973,6 +2973,26 @@ describe("/v1/messages route", () => {
     expect(text).toContain('"url":"https://example.com/docs"')
     expect(text).toContain("The latest docs are at https://example.com/docs.")
     expect(text).toContain("event: message_stop")
+
+    const events = text.split("\n\n").flatMap((chunk) => {
+      const data = chunk.split("\n").find((line) => line.startsWith("data: "))
+      if (!data) return []
+      return [JSON.parse(data.slice("data: ".length)) as {
+        content_block?: { input?: Record<string, unknown>; type?: string }
+        delta?: { partial_json?: string; type?: string }
+        type: string
+      }]
+    })
+    const serverToolStart = events.find(
+      (event) => event.content_block?.type === "server_tool_use",
+    )
+    const serverToolDelta = events.find(
+      (event) => event.delta?.type === "input_json_delta",
+    )
+    expect(serverToolStart?.content_block?.input).toEqual({})
+    expect(serverToolDelta?.delta?.partial_json).toBe(
+      JSON.stringify({ query: "latest docs" }),
+    )
   })
 
   test("handles Claude Code style tool history without legacy reasoning injection", async () => {

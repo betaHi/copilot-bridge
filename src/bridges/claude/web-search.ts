@@ -946,6 +946,8 @@ export const webSearchResponseToEvents = (
       index,
       content_block:
         block.type === "text" ? { type: "text", text: "" }
+        : block.type === "server_tool_use" || block.type === "tool_use" ?
+          { ...block, input: {} }
         : block,
     })
 
@@ -955,7 +957,7 @@ export const webSearchResponseToEvents = (
         index,
         delta: { type: "text_delta", text: block.text },
       })
-    } else if (block.type === "server_tool_use") {
+    } else if (block.type === "server_tool_use" || block.type === "tool_use") {
       events.push({
         type: "content_block_delta",
         index,
