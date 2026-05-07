@@ -13,6 +13,7 @@
 
 ## Contents
 - [Demo](#demo)
+- [Why this bridge?](#why-this-bridge)
 - [Install & run](#install--run)
 - [Configure Codex CLI](#configure-codex-cli)
 - [Configure Claude Code](#configure-claude-code)
@@ -33,6 +34,19 @@
 ### Claude Code
 
 ![Claude demo](assets/screenshots/claude_demo.png)
+
+## Why this bridge?
+
+copilot-bridge is more than a raw HTTP proxy:
+
+1. **Codex and Claude support.** Exposes Codex `/v1/responses`, Claude Code
+   `/v1/messages`, and OpenAI-compatible chat, embeddings, and models routes.
+2. **Web search support.** Model-selected web search can be executed by the
+   bridge and fed back into a final model pass.
+3. **End-to-end reasoning support.** Normalizes model aliases and
+   `reasoning_effort`, routes through the right upstream API, and preserves
+   returned `reasoning_text` / `reasoning_content` in streaming and
+   non-streaming responses.
 
 ## Install & run
 
