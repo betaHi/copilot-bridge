@@ -507,6 +507,79 @@ model_reasoning_effort = "high"
     expect(body.error.message).toBe("bad")
   })
 
+  test("upstream payload-too-large responses include bridge request diagnostics", async () => {
+    const captured: Array<CapturedRequest> = []
+    const upstream = new Response("Payload Too Large: failed to parse request", {
+      status: 413,
+      statusText: "Payload Too Large",
+      headers: { "content-type": "text/plain" },
+    })
+    const { app, restore: r } = buildApp(captured, upstream)
+    restore = r
+
+    const res = await app.request("/v1/responses", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "gpt-5.3-codex",
+        input: [
+          { role: "user", content: [{ type: "input_text", text: "hello" }] },
+        ],
+      }),
+    })
+
+    expect(res.status).toBe(413)
+    expect(res.headers.get("content-type")).toContain("application/json")
+    const body = (await res.json()) as {
+      error: {
+        code: string
+        input_item_count?: number
+        message: string
+        request_bytes?: number
+      }
+    }
+    expect(body.error.code).toBe("payload_too_large")
+    expect(body.error.message).toContain("Start a fresh Codex session")
+    expect(body.error.input_item_count).toBe(1)
+    expect(body.error.request_bytes).toBeGreaterThan(0)
+  })
+
+  test("responses compact route is forwarded to upstream compact endpoint", async () => {
+    const captured: Array<CapturedRequest> = []
+    const upstream = new Response(
+      JSON.stringify({
+        items: [
+          {
+            type: "message",
+            role: "user",
+            content: [{ type: "input_text", text: "summary" }],
+          },
+        ],
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    )
+    const { app, restore: r } = buildApp(captured, upstream)
+    restore = r
+
+    const res = await app.request("/v1/responses/compact", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "gpt-5.3-codex",
+        input: [
+          { role: "user", content: [{ type: "input_text", text: "hello" }] },
+        ],
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    expect(captured).toHaveLength(1)
+    expect(captured[0].url).toBe("https://upstream.test/responses/compact")
+    expect((captured[0].body as { model: string }).model).toBe("gpt-5.3-codex")
+    const body = (await res.json()) as { items: Array<unknown> }
+    expect(body.items).toHaveLength(1)
+  })
+
   test("Codex fallback ignores default web_search availability when not selected", async () => {
     const home = await mkdtemp(path.join(os.tmpdir(), "codex-web-search-home-"))
     process.env.HOME = home
