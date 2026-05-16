@@ -2,6 +2,7 @@ import { defineCommand } from "citty"
 import consola from "consola"
 
 import { setupBridgeAuth } from "~/lib/auth"
+import { enableAutoMode } from "~/lib/auto-session"
 import {
   applyClaudeConfig,
   parsePortFromBaseUrl,
@@ -116,6 +117,12 @@ export const start = defineCommand({
       description:
         "When --rate-limit is set, wait instead of returning HTTP 429.",
     },
+    auto: {
+      type: "boolean",
+      default: false,
+      description:
+        "Acquire a Copilot auto-mode session token and attach it to every upstream request (bypasses the router intent step; only auto-mode models are reachable).",
+    },
   },
   async run({ args }) {
     // Port resolution priority (high → low):
@@ -166,6 +173,22 @@ export const start = defineCommand({
     await setupBridgeAuth(config, {
       showToken: args["show-token"],
     })
+
+    if (args.auto) {
+      try {
+        const session = await enableAutoMode(config)
+        consola.success(
+          `Auto mode enabled${
+            session.available_models?.length ?
+              ` (available models: ${session.available_models.join(", ")})`
+            : ""
+          }`,
+        )
+      } catch (error) {
+        consola.error("Failed to enable auto mode:", error)
+        process.exit(1)
+      }
+    }
 
     const server = startServer(config)
 
@@ -293,7 +316,16 @@ export const start = defineCommand({
             .map((id) => getPublicModelId(id)),
         )
       : fallbackModelIds
-    const finalPickable = pickable.length > 0 ? pickable : fallbackModelIds
+    const autoAllowed =
+      args.auto && runtimeState.autoAvailableModels?.length ?
+        new Set(runtimeState.autoAvailableModels.map(getPublicModelId))
+      : undefined
+    const autoFilteredPickable =
+      autoAllowed ? pickable.filter((id) => autoAllowed.has(id)) : pickable
+    const finalPickable =
+      autoFilteredPickable.length > 0 ? autoFilteredPickable
+      : pickable.length > 0 ? pickable
+      : fallbackModelIds
     if (models.length > 0) {
       consola.info(
         `Available models:\n${models
