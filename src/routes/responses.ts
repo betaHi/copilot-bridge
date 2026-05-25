@@ -1,5 +1,3 @@
-import { Buffer } from "node:buffer"
-
 import { Hono } from "hono"
 import consola from "consola"
 
@@ -54,17 +52,10 @@ type ResponsesRequestDiagnostics = {
   input_kind?: string
   max_output_tokens?: unknown
   reasoning_effort?: unknown
-  request_bytes: number
   stream?: boolean
   tool_choice?: unknown
   tools?: ToolDiagnostics
 }
-
-const getRequestByteLength = (payload: unknown): number =>
-  Buffer.byteLength(JSON.stringify(payload), "utf8")
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value)
 
 const summarizeResponsesRequestForDiagnostics = (
   payload: ResponsesRequestLike,
@@ -78,42 +69,10 @@ const summarizeResponsesRequestForDiagnostics = (
     : typeof payload.input,
   max_output_tokens: payload.max_output_tokens,
   reasoning_effort: payload.reasoning?.effort,
-  request_bytes: getRequestByteLength(payload),
   stream: payload.stream ?? undefined,
   tool_choice: payload.tool_choice,
   tools: summarizeToolsForDiagnostics(payload.tools),
 })
-
-const createPayloadTooLargeResponse = (
-  request: unknown,
-  route: string,
-): Response => {
-  const requestBytes = getRequestByteLength(request)
-  const input = isRecord(request) ? request.input : undefined
-  const messages = isRecord(request) ? request.messages : undefined
-  const inputItemCount = Array.isArray(input) ? input.length : undefined
-  const messageCount = Array.isArray(messages) ? messages.length : undefined
-
-  return new Response(
-    JSON.stringify({
-      error: {
-        type: "payload_too_large",
-        code: "payload_too_large",
-        message:
-          `Copilot rejected the ${route} request as too large `
-          + `(${requestBytes} bytes after bridge normalization). `
-          + "Start a fresh Codex session, compact the conversation, or reduce large tool outputs before retrying.",
-        request_bytes: requestBytes,
-        ...(inputItemCount === undefined ? {} : { input_item_count: inputItemCount }),
-        ...(messageCount === undefined ? {} : { message_count: messageCount }),
-      },
-    }),
-    {
-      status: 413,
-      headers: { "content-type": "application/json" },
-    },
-  )
-}
 
 const logResponsesUpstreamError = async (
   message: string,
@@ -396,75 +355,6 @@ const mergeCodexNativeWebSearchAndFinalResponse = (
   },
 })
 
-responsesRoutes.post("/compact", async (c) => {
-  try {
-    await checkRateLimit()
-  } catch (error) {
-    if (error instanceof RateLimitError) {
-      return c.json({ error: { message: error.message } }, 429)
-    }
-    throw error
-  }
-
-  const rawPayload = (await c.req.json()) as ResponsesRequestLike
-  const effectivePayload =
-    runtimeState.modelOverride ?
-      { ...rawPayload, model: runtimeState.modelOverride }
-    : rawPayload
-  const codexUserConfig = await readCodexUserConfig()
-  const configuredReasoningEffort = normalizeCodexConfigReasoningEffort(
-    codexUserConfig.modelReasoningEffort,
-  )
-  const payload = normalizeCodexResponsesRequest(
-    effectivePayload,
-    configuredReasoningEffort,
-  )
-  const config = c.get("config")
-  const provider = getCopilotProviderContext(config)
-  const search = new URL(c.req.url).search
-
-  try {
-    const upstream = await fetchCopilot(provider, `/responses/compact${search}`, {
-      method: "POST",
-      headers: {
-        accept: c.req.header("accept") ?? "application/json",
-        "content-type": c.req.header("content-type") ?? "application/json",
-      },
-      body: JSON.stringify(payload),
-    })
-
-    if (!upstream.ok) {
-      await logResponsesUpstreamError("Failed to compact responses", upstream, {
-        model: payload.model,
-        request: payload,
-        route: "/responses/compact",
-      })
-      if (upstream.status === 413) {
-        return createPayloadTooLargeResponse(payload, "/responses/compact")
-      }
-    }
-
-    return new Response(upstream.body, {
-      status: upstream.status,
-      headers: upstream.headers,
-    })
-  } catch (error) {
-    if (error instanceof BridgeNotImplementedError) {
-      return c.json(
-        {
-          error: {
-            type: error.name,
-            message: error.message,
-          },
-        },
-        501,
-      )
-    }
-
-    throw error
-  }
-})
-
 responsesRoutes.post("/", async (c) => {
   try {
     await checkRateLimit()
@@ -530,9 +420,6 @@ responsesRoutes.post("/", async (c) => {
               route: "/chat/completions",
             },
           )
-          if (finalUpstream.status === 413) {
-            return createPayloadTooLargeResponse(finalPayload, "/chat/completions")
-          }
           const text = await finalUpstream.text()
           return new Response(text, {
             status: finalUpstream.status,
@@ -586,9 +473,6 @@ responsesRoutes.post("/", async (c) => {
             route: "/chat/completions",
           },
         )
-        if (upstream.status === 413) {
-          return createPayloadTooLargeResponse(chatPayload, "/chat/completions")
-        }
         const text = await upstream.text()
         return new Response(text, {
           status: upstream.status,
@@ -651,9 +535,6 @@ responsesRoutes.post("/", async (c) => {
             route: "/responses",
           },
         )
-        if (finalUpstream.status === 413) {
-          return createPayloadTooLargeResponse(finalPayload, "/responses")
-        }
         const text = await finalUpstream.text()
         return new Response(text, {
           status: finalUpstream.status,
@@ -706,9 +587,6 @@ responsesRoutes.post("/", async (c) => {
             route: "/responses",
           },
         )
-        if (decisionUpstream.status === 413) {
-          return createPayloadTooLargeResponse(decisionPayload, "/responses")
-        }
         const text = await decisionUpstream.text()
         return new Response(text, {
           status: decisionUpstream.status,
@@ -756,9 +634,6 @@ responsesRoutes.post("/", async (c) => {
         request: payload,
         route: "/responses",
       })
-      if (upstream.status === 413) {
-        return createPayloadTooLargeResponse(payload, "/responses")
-      }
     }
 
     if (payload.stream && upstream.body && contentType.includes("text/event-stream")) {
