@@ -44,6 +44,11 @@ interface AuthOptions {
   showToken?: boolean
 }
 
+export interface BridgeAuthSession {
+  githubLogin?: string
+  source: "copilot-token" | "github-token"
+}
+
 const standardHeaders = () => ({
   accept: "application/json",
   "content-type": "application/json",
@@ -155,10 +160,7 @@ const getCopilotToken = async (
 const isCopilotTokenError = (error: unknown): boolean =>
   error instanceof HTTPError && error.message === "Failed to get Copilot token"
 
-const ensureGitHubToken = async (
-  config: BridgeConfig,
-  options: AuthOptions = {},
-) => {
+const ensureGitHubToken = async (options: AuthOptions = {}) => {
   await ensurePaths()
 
   const existingToken = options.force ? "" : await readGitHubToken()
@@ -178,25 +180,35 @@ const ensureGitHubToken = async (
     consola.info("GitHub token:", githubToken)
   }
 
-  const user = await getGitHubUser(githubToken, config.vsCodeVersion)
-  consola.success(`Logged in as ${user.login}`)
-
   return githubToken
+}
+
+const loadGitHubLogin = async (
+  githubToken: string,
+  vsCodeVersion: string,
+): Promise<string | undefined> => {
+  try {
+    const user = await getGitHubUser(githubToken, vsCodeVersion)
+    return user.login
+  } catch (error) {
+    consola.warn("Could not load GitHub user:", error)
+    return undefined
+  }
 }
 
 export const setupBridgeAuth = async (
   config: BridgeConfig,
   options: AuthOptions = {},
-) => {
+): Promise<BridgeAuthSession> => {
   if (config.copilotToken) {
     if (options.showToken) {
       consola.info("Using COPILOT_TOKEN from environment")
     }
     await loadModels(config)
-    return
+    return { source: "copilot-token" }
   }
 
-  let githubToken = await ensureGitHubToken(config, options)
+  let githubToken = await ensureGitHubToken(options)
   const applyCopilotToken = async () => {
     const { refresh_in, token } = await getCopilotToken(
       githubToken,
@@ -222,7 +234,7 @@ export const setupBridgeAuth = async (
     consola.warn(
       "Cached GitHub auth could not get a Copilot token; running device auth again.",
     )
-    githubToken = await ensureGitHubToken(config, {
+    githubToken = await ensureGitHubToken({
       ...options,
       force: true,
     })
@@ -240,6 +252,11 @@ export const setupBridgeAuth = async (
   }, refreshInterval)
 
   await loadModels(config)
+
+  return {
+    githubLogin: await loadGitHubLogin(githubToken, config.vsCodeVersion),
+    source: "github-token",
+  }
 }
 
 const loadModels = async (config: BridgeConfig) => {
@@ -257,7 +274,7 @@ export const runBridgeAuth = async (
   config: BridgeConfig,
   options: AuthOptions = {},
 ) => {
-  const githubToken = await ensureGitHubToken(config, {
+  const githubToken = await ensureGitHubToken({
     ...options,
     force: true,
   })

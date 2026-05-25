@@ -25,6 +25,8 @@ interface ApplyCodexConfigInput {
   model?: string
   /** Optional reasoning effort to write into the user-owned area. */
   modelReasoningEffort?: string
+  /** Optional upstream context window to expose to Codex CLI metadata. */
+  modelContextWindow?: number
 }
 
 interface ApplyResult {
@@ -66,10 +68,16 @@ function tomlEscape(value: string): string {
 
 function buildManagedBlock(input: ApplyCodexConfigInput): string {
   const { baseUrl, settings } = input
+  const modelContextWindow = normalizeModelContextWindow(
+    input.modelContextWindow,
+  )
   const lines: Array<string> = []
   lines.push(BEGIN_MARK)
   if (settings.setAsDefault) {
     lines.push(`model_provider = "${tomlEscape(settings.providerId)}"`)
+  }
+  if (modelContextWindow !== undefined) {
+    lines.push(`model_context_window = ${modelContextWindow}`)
   }
   lines.push("model_supports_reasoning_summaries = true")
   lines.push("")
@@ -83,6 +91,17 @@ function buildManagedBlock(input: ApplyCodexConfigInput): string {
   return lines.join("\n")
 }
 
+function extractPreservedContentFromManagedBlock(content: string): string {
+  const lines = content.split("\n")
+  const preserveStart = lines.findIndex((line) => {
+    const trimmed = line.trim()
+    return trimmed.startsWith("[") && !trimmed.startsWith("[model_providers.")
+  })
+
+  if (preserveStart === -1) return ""
+  return lines.slice(preserveStart).join("\n").replace(/^\n+|\n+$/g, "")
+}
+
 function stripManagedBlock(content: string): string {
   let next = content
   for (const [begin, end] of [
@@ -94,8 +113,14 @@ function stripManagedBlock(content: string): string {
       if (beginIdx === -1) break
       const endIdx = next.indexOf(end, beginIdx)
       if (endIdx === -1) break
+      const preserved = extractPreservedContentFromManagedBlock(
+        next.slice(beginIdx + begin.length, endIdx),
+      )
       const before = next.slice(0, beginIdx).replace(/\n*$/, "")
-      const after = next.slice(endIdx + end.length).replace(/^\n+/, "")
+      const after = [preserved, next.slice(endIdx + end.length)]
+        .filter(Boolean)
+        .join("\n")
+        .replace(/^\n+/, "")
       if (before.length === 0) next = after
       else if (after.length === 0) next = `${before}\n`
       else next = `${before}\n\n${after}`
@@ -167,6 +192,35 @@ function removeTopKey(topSection: string, key: string): string {
   return lines.filter((line) => !re.test(line)).join("\n")
 }
 
+function normalizeModelContextWindow(
+  value: number | undefined,
+): number | undefined {
+  if (value === undefined || !Number.isFinite(value)) {
+    return undefined
+  }
+
+  const normalized = Math.trunc(value)
+  return normalized > 0 ? normalized : undefined
+}
+
+function removeTopLevelContextWindowWhenManaged(
+  content: string,
+  input: ApplyCodexConfigInput,
+): string {
+  if (normalizeModelContextWindow(input.modelContextWindow) === undefined) {
+    return content
+  }
+
+  const { top, rest } = splitTopSection(content)
+  const nextTop = removeTopKey(top, "model_context_window")
+  if (nextTop === top) return content
+  if (rest.length === 0) {
+    return nextTop.endsWith("\n") ? nextTop : `${nextTop}\n`
+  }
+  const sep = nextTop.endsWith("\n") ? "" : "\n"
+  return `${nextTop}${sep}${rest}`
+}
+
 function sanitizeTopReasoningEffort(topSection: string): string {
   const match = topSection.match(scalarRegex("model_reasoning_effort"))
   if (!match) return topSection
@@ -219,10 +273,13 @@ export async function applyCodexConfig(
 
   let stripped = stripManagedBlock(existing)
   stripped = applyUserScalars(stripped, input)
+  stripped = removeTopLevelContextWindowWhenManaged(stripped, input)
   const block = buildManagedBlock(input)
-  const trimmed = stripped.replace(/\n+$/, "")
-  const next =
-    trimmed.length === 0 ? `${block}\n` : `${trimmed}\n\n${block}\n`
+  const { top, rest } = splitTopSection(stripped)
+  const parts = [top, block, rest]
+    .map((part) => part.replace(/^\n+|\n+$/g, ""))
+    .filter(Boolean)
+  const next = `${parts.join("\n\n")}\n`
 
   if (next === existing) {
     return { configPath, changed: false, created: false }

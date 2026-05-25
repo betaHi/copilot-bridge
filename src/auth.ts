@@ -34,10 +34,14 @@ export const auth = defineCommand({
 
     config.copilotToken = undefined
 
-    await setupBridgeAuth(config, {
+    const authSession = await setupBridgeAuth(config, {
       force: true,
       showToken: args["show-token"],
     })
+
+    if (authSession.githubLogin) {
+      consola.info(`Logged in as ${authSession.githubLogin}`)
+    }
 
     consola.success("copilot-bridge auth completed")
   },

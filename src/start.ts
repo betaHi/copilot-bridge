@@ -21,8 +21,10 @@ import {
 import {
   getModelCapability,
   MODEL_CAPABILITIES,
+  resolveModelId,
 } from "~/lib/model-capabilities"
 import { runtimeState } from "~/lib/state"
+import { BRIDGE_VERSION } from "~/lib/version"
 import {
   fetchCopilot,
   getCopilotProviderContext,
@@ -57,6 +59,27 @@ const fetchAvailableModels = async (
   } catch {
     return []
   }
+}
+
+const getCodexModelContextWindow = (
+  model: string | undefined,
+): number | undefined => {
+  if (!model) return undefined
+
+  const resolvedModel = resolveModelId(model)
+  const match = runtimeState.models?.data.find(
+    (candidate) =>
+      candidate.id === resolvedModel
+      || candidate.id === model
+      || getPublicModelId(candidate.id) === model
+      || getPublicModelId(candidate.id) === resolvedModel,
+  )
+  const contextWindow =
+    match?.capabilities?.limits?.max_context_window_tokens
+
+  return typeof contextWindow === "number" && contextWindow > 0 ?
+      Math.trunc(contextWindow)
+    : undefined
 }
 
 export const start = defineCommand({
@@ -163,11 +186,20 @@ export const start = defineCommand({
       )
     }
 
-    await setupBridgeAuth(config, {
+    const authSession = await setupBridgeAuth(config, {
       showToken: args["show-token"],
     })
 
     const server = startServer(config)
+
+    consola.info(`copilot-bridge version: ${BRIDGE_VERSION}`)
+    if (authSession.githubLogin) {
+      consola.info(`GitHub user: ${authSession.githubLogin}`)
+    } else if (authSession.source === "copilot-token") {
+      consola.info("GitHub user: unavailable (using COPILOT_TOKEN)")
+    } else {
+      consola.warn("GitHub user: unavailable")
+    }
 
     consola.success(
       `copilot-bridge listening on http://${config.host}:${config.port}`,
@@ -253,6 +285,7 @@ export const start = defineCommand({
           settings: CODEX_DEFAULTS,
           model: chosenModel,
           modelReasoningEffort: chosenEffort,
+          modelContextWindow: getCodexModelContextWindow(chosenModel),
         })
         if (result.changed) {
           consola.success(
@@ -356,6 +389,7 @@ export const start = defineCommand({
               settings: CODEX_DEFAULTS,
               model: chosenModel,
               modelReasoningEffort: chosenEffort,
+              modelContextWindow: getCodexModelContextWindow(chosenModel),
             })
             if (result.changed) {
               consola.success(`codex config updated: ${result.configPath}`)

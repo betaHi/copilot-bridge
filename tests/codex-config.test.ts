@@ -133,6 +133,55 @@ model_supports_reasoning_summaries = false
     expect(content.match(/^model_supports_reasoning_summaries = /gm)).toHaveLength(1)
   })
 
+  test("writes managed model context window and removes stale top-level override", async () => {
+    const p = await makeConfigPath()
+    await writeFile(
+      p,
+      `model = "gpt-5.5"
+model_context_window = 258400
+`,
+    )
+    await applyCodexConfig({
+      configPath: p,
+      baseUrl: "http://127.0.0.1:4242/v1",
+      settings: baseSettings,
+      modelContextWindow: 1050000,
+    })
+    const content = await readFile(p, "utf8")
+    const managedStart = content.indexOf(">>> copilot-bridge managed")
+    expect(content.slice(0, managedStart)).not.toContain(
+      "model_context_window",
+    )
+    expect(content.match(/^model_context_window = /gm)).toHaveLength(1)
+    expect(content.slice(managedStart)).toContain(
+      "model_context_window = 1050000",
+    )
+  })
+
+  test("preserves user auto-compact policy while managing context window", async () => {
+    const p = await makeConfigPath()
+    await writeFile(
+      p,
+      `model = "gpt-5.5"
+model_auto_compact_token_limit = 200000
+`,
+    )
+    await applyCodexConfig({
+      configPath: p,
+      baseUrl: "http://127.0.0.1:4242/v1",
+      settings: baseSettings,
+      modelContextWindow: 1050000,
+    })
+    const content = await readFile(p, "utf8")
+    const managedStart = content.indexOf(">>> copilot-bridge managed")
+    expect(content.slice(0, managedStart)).toContain(
+      "model_auto_compact_token_limit = 200000",
+    )
+    expect(content.slice(managedStart)).toContain(
+      "model_context_window = 1050000",
+    )
+  })
+
   test("preserves user's pre-existing top-level keys when adding managed block", async () => {
     const p = await makeConfigPath()
     await writeFile(
@@ -269,5 +318,52 @@ requires_openai_auth = false
     expect(content).toContain("base_url = \"http://127.0.0.1:4242/v1\"")
     // User's top-level model survives the upgrade.
     expect(content).toMatch(/^model = "claude-opus-4\.7"$/m)
+  })
+
+  test("preserves Codex-owned sections accidentally written inside managed markers", async () => {
+    const p = await makeConfigPath()
+    await writeFile(
+      p,
+      `model = "gpt-5.5"
+
+# >>> copilot-bridge managed block — auto-generated, do not edit between markers >>>
+model_provider = "bridge"
+model_supports_reasoning_summaries = true
+
+[model_providers.bridge]
+name = "Copilot Bridge"
+base_url = "http://old/v1"
+wire_api = "responses"
+prefer_websockets = false
+requires_openai_auth = false
+
+[projects."/Users/z/ai_run"]
+trust_level = "trusted"
+
+[tui.model_availability_nux]
+"gpt-5.5" = 1
+# <<< copilot-bridge managed block — edits outside this block are preserved <<<
+`,
+    )
+    await applyCodexConfig({
+      configPath: p,
+      baseUrl: "http://127.0.0.1:4242/v1",
+      settings: baseSettings,
+      modelContextWindow: 1050000,
+    })
+    const content = await readFile(p, "utf8")
+    const managedStart = content.indexOf(">>> copilot-bridge managed")
+    const managedEnd = content.indexOf("<<< copilot-bridge managed")
+    expect(content).toContain('[projects."/Users/z/ai_run"]')
+    expect(content).toContain('"gpt-5.5" = 1')
+    expect(content.indexOf('[projects."/Users/z/ai_run"]')).toBeGreaterThan(
+      managedEnd,
+    )
+    expect(content.slice(managedStart, managedEnd)).toContain(
+      "model_context_window = 1050000",
+    )
+    expect(content.slice(managedStart, managedEnd)).not.toContain(
+      "[projects.",
+    )
   })
 })
