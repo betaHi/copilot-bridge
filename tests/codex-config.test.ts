@@ -366,4 +366,100 @@ trust_level = "trusted"
       "[projects.",
     )
   })
+
+  test("recovers from orphan managed block and stale provider table", async () => {
+    const p = await makeConfigPath()
+    await writeFile(
+      p,
+      `model = "gpt-5.5"
+model_reasoning_effort = "xhigh"
+model_auto_compact_token_limit = 200000
+
+# >>> copilot-bridge managed block — auto-generated, do not edit between markers >>>
+model_provider = "bridge"
+
+# >>> copilot-bridge managed block — auto-generated, do not edit between markers >>>
+model_provider = "bridge"
+model_context_window = 1050000
+model_supports_reasoning_summaries = true
+
+[model_providers.bridge]
+name = "Copilot Bridge"
+base_url = "http://old/v1"
+wire_api = "responses"
+prefer_websockets = false
+requires_openai_auth = false
+# <<< copilot-bridge managed block — edits outside this block are preserved <<<
+
+[model_providers.bridge]
+name = "Copilot Bridge"
+base_url = "http://old/v1"
+wire_api = "responses"
+prefer_websockets = false
+requires_openai_auth = false
+
+[tui.model_availability_nux]
+"gpt-5.5" = 4
+
+[projects."/Users/z/ai_run"]
+trust_level = "trusted"
+`,
+    )
+    await applyCodexConfig({
+      configPath: p,
+      baseUrl: "http://127.0.0.1:4242/v1",
+      settings: baseSettings,
+      modelContextWindow: 1050000,
+    })
+    const content = await readFile(p, "utf8")
+
+    expect(content.match(/^model_provider = /gm)).toHaveLength(1)
+    expect(content.match(/^model_context_window = /gm)).toHaveLength(1)
+    expect(content.match(/^model_supports_reasoning_summaries = /gm)).toHaveLength(1)
+    expect(content.match(/^\[model_providers\.bridge\]$/gm)).toHaveLength(1)
+    expect(content.match(/copilot-bridge managed block — auto-generated/g)).toHaveLength(1)
+    expect(content.match(/copilot-bridge managed block — edits outside/g)).toHaveLength(1)
+    expect(content).toContain("model_auto_compact_token_limit = 200000")
+    expect(content).toContain('[projects."/Users/z/ai_run"]')
+    expect(content).toContain('[tui.model_availability_nux]')
+    expect(content).toContain('base_url = "http://127.0.0.1:4242/v1"')
+  })
+
+  test("preserves non-bridge provider tables while replacing bridge provider", async () => {
+    const p = await makeConfigPath()
+    await writeFile(
+      p,
+      `model = "gpt-5.5"
+
+[model_providers.openai]
+name = "OpenAI"
+base_url = "https://api.openai.com/v1"
+wire_api = "responses"
+
+[model_providers.bridge]
+name = "Old Bridge"
+base_url = "http://old/v1"
+wire_api = "responses"
+
+[profiles.work]
+model_provider = "openai"
+`,
+    )
+    await applyCodexConfig({
+      configPath: p,
+      baseUrl: "http://127.0.0.1:4242/v1",
+      settings: baseSettings,
+      modelContextWindow: 1050000,
+    })
+    const content = await readFile(p, "utf8")
+
+    expect(content).toContain("[model_providers.openai]")
+    expect(content).toContain('base_url = "https://api.openai.com/v1"')
+    expect(content).toContain("[profiles.work]")
+    expect(content).toContain('model_provider = "openai"')
+    expect(content.match(/^\[model_providers\.bridge\]$/gm)).toHaveLength(1)
+    expect(content).toContain('name = "Copilot Bridge"')
+    expect(content).toContain('base_url = "http://127.0.0.1:4242/v1"')
+    expect(content).not.toContain('name = "Old Bridge"')
+  })
 })

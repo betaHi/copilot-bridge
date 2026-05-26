@@ -12,6 +12,12 @@ const END_MARK =
 // upgrading users do not end up with duplicate managed blocks.
 const LEGACY_BEGIN_MARK = "# >>> copilot-bridge managed (do not edit) >>>"
 const LEGACY_END_MARK = "# <<< copilot-bridge managed (do not edit) <<<"
+const MANAGED_MARKERS = new Set([
+  BEGIN_MARK,
+  END_MARK,
+  LEGACY_BEGIN_MARK,
+  LEGACY_END_MARK,
+])
 
 // Top-level keys that the user (or codex itself) is the owner of.
 // We never put these in our managed block to avoid TOML duplicate-key errors.
@@ -129,6 +135,37 @@ function stripManagedBlock(content: string): string {
   return next
 }
 
+function removeStrayManagedMarkerLines(content: string): string {
+  return content
+    .split("\n")
+    .filter((line) => !MANAGED_MARKERS.has(line.trim()))
+    .join("\n")
+}
+
+function removeManagedProviderTables(
+  content: string,
+  providerId: string,
+): string {
+  const lines = content.split("\n")
+  const out: Array<string> = []
+  const tableHeader = `[model_providers.${providerId}]`
+
+  for (let i = 0; i < lines.length;) {
+    if (lines[i].trim() === tableHeader) {
+      i += 1
+      while (i < lines.length && !/^\s*\[/.test(lines[i])) {
+        i += 1
+      }
+      continue
+    }
+
+    out.push(lines[i])
+    i += 1
+  }
+
+  return out.join("\n").replace(/\n{3,}/g, "\n\n")
+}
+
 // Lines belonging to the first (top-level) TOML section: from the start of
 // the file up to the first line that begins with `[`. This is where
 // codex's own `model = ...` and `model_reasoning_effort = ...` live.
@@ -203,16 +240,23 @@ function normalizeModelContextWindow(
   return normalized > 0 ? normalized : undefined
 }
 
-function removeTopLevelContextWindowWhenManaged(
+function removeManagedTopLevelKeys(
   content: string,
   input: ApplyCodexConfigInput,
 ): string {
-  if (normalizeModelContextWindow(input.modelContextWindow) === undefined) {
-    return content
+  const { top, rest } = splitTopSection(content)
+  let nextTop = top
+
+  if (input.settings.setAsDefault) {
+    nextTop = removeTopKey(nextTop, "model_provider")
   }
 
-  const { top, rest } = splitTopSection(content)
-  const nextTop = removeTopKey(top, "model_context_window")
+  if (normalizeModelContextWindow(input.modelContextWindow) !== undefined) {
+    nextTop = removeTopKey(nextTop, "model_context_window")
+  }
+
+  nextTop = removeTopKey(nextTop, "model_supports_reasoning_summaries")
+
   if (nextTop === top) return content
   if (rest.length === 0) {
     return nextTop.endsWith("\n") ? nextTop : `${nextTop}\n`
@@ -272,8 +316,10 @@ export async function applyCodexConfig(
   }
 
   let stripped = stripManagedBlock(existing)
+  stripped = removeStrayManagedMarkerLines(stripped)
+  stripped = removeManagedProviderTables(stripped, input.settings.providerId)
   stripped = applyUserScalars(stripped, input)
-  stripped = removeTopLevelContextWindowWhenManaged(stripped, input)
+  stripped = removeManagedTopLevelKeys(stripped, input)
   const block = buildManagedBlock(input)
   const { top, rest } = splitTopSection(stripped)
   const parts = [top, block, rest]
