@@ -36,6 +36,7 @@ const shouldRetryResponse = (response: Response): boolean =>
 
 const buildHeaders = (
   provider: CopilotProviderContext,
+  path: string,
   init: RequestInit,
   options: FetchCopilotOptions,
 ): Headers => {
@@ -47,10 +48,7 @@ const buildHeaders = (
   headers.set("editor-plugin-version", EDITOR_PLUGIN_VERSION)
   headers.set("user-agent", USER_AGENT)
   headers.set("openai-intent", "conversation-panel")
-  headers.set(
-    "x-github-api-version",
-    runtimeState.autoSessionToken ? AUTO_MODE_API_VERSION : API_VERSION,
-  )
+  headers.set("x-github-api-version", API_VERSION)
   headers.set("x-request-id", randomUUID())
   headers.set("x-vscode-user-agent-library-version", "electron-fetch")
 
@@ -62,8 +60,9 @@ const buildHeaders = (
     headers.set("x-initiator", options.initiator)
   }
 
-  if (runtimeState.autoSessionToken) {
-    headers.set("copilot-session-token", runtimeState.autoSessionToken)
+  if (runtimeState.autoSessionToken && (path.startsWith("/chat/completions") || path.startsWith("/responses"))) {
+    headers.set("copilot-session-token", runtimeState.autoSessionToken),
+    headers.set("x-github-api-version", AUTO_MODE_API_VERSION)
   }
 
   if (!headers.has("content-type") && init.body !== undefined) {
@@ -132,7 +131,7 @@ export const fetchCopilot = async (
       await traceCopilotRequest(path, init, options, attempt)
       const response = await fetch(`${provider.baseUrl}${path}`, {
         ...init,
-        headers: buildHeaders(provider, init, options),
+        headers: buildHeaders(provider, path, init, options),
       })
 
       if (!shouldRetryResponse(response) || attempt === MAX_FETCH_ATTEMPTS) {

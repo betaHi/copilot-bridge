@@ -197,22 +197,6 @@ export const start = defineCommand({
       showToken: args["show-token"],
     })
 
-    if (args.auto) {
-      try {
-        const session = await enableAutoMode(config)
-        consola.success(
-          `Auto mode enabled${
-            session.available_models?.length ?
-              ` (available models: ${session.available_models.join(", ")})`
-            : ""
-          }`,
-        )
-      } catch (error) {
-        consola.error("Failed to enable auto mode:", error)
-        process.exit(1)
-      }
-    }
-
     const server = startServer(config)
 
     consola.info(`copilot-bridge version: ${BRIDGE_VERSION}`)
@@ -333,8 +317,15 @@ export const start = defineCommand({
         )
       }
     }
-
-    const models = await fetchAvailableModels(config)
+    
+    let models
+    if (args.auto) {
+      const session = await enableAutoMode(config)
+      models = session.available_models ?? []
+    }
+    else {
+      models = await fetchAvailableModels(config)    
+    }
     const supportedIds = new Set(
       MODEL_CAPABILITIES.flatMap((m) => [m.id, ...(m.aliases ?? [])]),
     )
@@ -349,16 +340,7 @@ export const start = defineCommand({
             .map((id) => getPublicModelId(id)),
         )
       : fallbackModelIds
-    const autoAllowed =
-      args.auto && runtimeState.autoAvailableModels?.length ?
-        new Set(runtimeState.autoAvailableModels.map(getPublicModelId))
-      : undefined
-    const autoFilteredPickable =
-      autoAllowed ? pickable.filter((id) => autoAllowed.has(id)) : pickable
-    const finalPickable =
-      autoFilteredPickable.length > 0 ? autoFilteredPickable
-      : pickable.length > 0 ? pickable
-      : fallbackModelIds
+    const finalPickable = pickable.length > 0 ? pickable : fallbackModelIds
     if (models.length > 0) {
       consola.info(
         `Available models:\n${models
