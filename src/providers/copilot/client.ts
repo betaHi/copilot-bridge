@@ -3,11 +3,13 @@ import { appendFile } from "node:fs/promises"
 
 import type { BridgeConfig } from "~/lib/config"
 import { BridgeNotImplementedError } from "~/lib/error"
+import { runtimeState } from "~/lib/state"
 
 const COPILOT_VERSION = "0.26.7"
 const EDITOR_PLUGIN_VERSION = `copilot-chat/${COPILOT_VERSION}`
 const USER_AGENT = `GitHubCopilotChat/${COPILOT_VERSION}`
 const API_VERSION = "2025-04-01"
+const AUTO_MODE_API_VERSION = "2025-10-01"
 const MAX_FETCH_ATTEMPTS = 2
 
 export interface CopilotProviderContext {
@@ -34,6 +36,7 @@ const shouldRetryResponse = (response: Response): boolean =>
 
 const buildHeaders = (
   provider: CopilotProviderContext,
+  path: string,
   init: RequestInit,
   options: FetchCopilotOptions,
 ): Headers => {
@@ -55,6 +58,11 @@ const buildHeaders = (
 
   if (options.initiator) {
     headers.set("x-initiator", options.initiator)
+  }
+
+  if (runtimeState.autoSessionToken && (path.startsWith("/chat/completions") || path.startsWith("/responses"))) {
+    headers.set("copilot-session-token", runtimeState.autoSessionToken),
+    headers.set("x-github-api-version", AUTO_MODE_API_VERSION)
   }
 
   if (!headers.has("content-type") && init.body !== undefined) {
@@ -123,7 +131,7 @@ export const fetchCopilot = async (
       await traceCopilotRequest(path, init, options, attempt)
       const response = await fetch(`${provider.baseUrl}${path}`, {
         ...init,
-        headers: buildHeaders(provider, init, options),
+        headers: buildHeaders(provider, path, init, options),
       })
 
       if (!shouldRetryResponse(response) || attempt === MAX_FETCH_ATTEMPTS) {

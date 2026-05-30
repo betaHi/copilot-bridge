@@ -2,6 +2,7 @@ import { defineCommand } from "citty"
 import consola from "consola"
 
 import { setupBridgeAuth } from "~/lib/auth"
+import { enableAutoMode } from "~/lib/auto-session"
 import {
   applyClaudeConfig,
   parsePortFromBaseUrl,
@@ -138,6 +139,12 @@ export const start = defineCommand({
       default: false,
       description:
         "When --rate-limit is set, wait instead of returning HTTP 429.",
+    },
+    auto: {
+      type: "boolean",
+      default: false,
+      description:
+        "Acquire a Copilot auto-mode session token and attach it to every upstream request (bypasses the router intent step; only auto-mode models are reachable).",
     },
   },
   async run({ args }) {
@@ -310,8 +317,15 @@ export const start = defineCommand({
         )
       }
     }
-
-    const models = await fetchAvailableModels(config)
+    
+    let models
+    if (args.auto) {
+      const session = await enableAutoMode(config)
+      models = session.available_models ?? []
+    }
+    else {
+      models = await fetchAvailableModels(config)    
+    }
     const supportedIds = new Set(
       MODEL_CAPABILITIES.flatMap((m) => [m.id, ...(m.aliases ?? [])]),
     )
