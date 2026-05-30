@@ -485,6 +485,42 @@ model_reasoning_effort = "high"
     ).toEqual({ effort: "high" })
   })
 
+  test("Claude opus 4.8 Codex fallback routes through chat completions", async () => {
+    const captured: Array<CapturedRequest> = []
+    const upstream = new Response(
+      JSON.stringify({
+        id: "chatcmpl-opus48",
+        model: "claude-opus-4.8",
+        choices: [{ message: { role: "assistant", content: "Hi" } }],
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    )
+    const { app, restore: r } = buildApp(captured, upstream)
+    restore = r
+
+    const res = await app.request("/v1/responses", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-opus-4.8",
+        input: "hi",
+        reasoning: { effort: "high", summary: "auto" },
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    expect(captured[0].url).toBe("https://upstream.test/chat/completions")
+    expect((captured[0].body as { model: string }).model).toBe(
+      "claude-opus-4.8",
+    )
+    expect(
+      (captured[0].body as { reasoning_effort?: string }).reasoning_effort,
+    ).toBe("medium")
+    expect(
+      (captured[0].body as { output_config?: { effort?: string } }).output_config,
+    ).toBeUndefined()
+  })
+
   test("upstream errors on translated path are propagated with original status", async () => {
     const captured: Array<CapturedRequest> = []
     const upstream = new Response(

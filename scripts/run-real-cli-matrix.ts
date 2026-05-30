@@ -583,11 +583,13 @@ const runPtyProcess = (
   args: Array<string>,
   options: { cwd?: string; env?: NodeJS.ProcessEnv; timeoutMs?: number } = {},
 ): Promise<ProcessResult> =>
-  runProcess(
-    "script",
-    ["-q", "-e", "-c", [command, ...args].map(shellQuote).join(" "), "/dev/null"],
-    options,
-  )
+  process.platform === "darwin" ?
+    runProcess("script", ["-q", "/dev/null", command, ...args], options)
+  : runProcess(
+      "script",
+      ["-q", "-e", "-c", [command, ...args].map(shellQuote).join(" "), "/dev/null"],
+      options,
+    )
 
 const waitForBridge = async () => {
   const deadline = Date.now() + 120_000

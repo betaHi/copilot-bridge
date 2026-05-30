@@ -140,6 +140,14 @@ export const MODEL_CAPABILITIES: ReadonlyArray<ModelCapability> = [
     },
   },
   {
+    id: "claude-opus-4.8",
+    fallback: "chat-completions",
+    reasoning: {
+      supported: ["medium"],
+      default: "medium",
+    },
+  },
+  {
     id: "claude-opus-4.5",
     fallback: "chat-completions",
   },

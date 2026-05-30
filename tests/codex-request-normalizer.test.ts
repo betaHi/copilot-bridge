@@ -51,6 +51,17 @@ describe("codex /v1/responses request normalizer", () => {
     expect(out.reasoning).toBeUndefined()
   })
 
+  test("clamps reasoning for Claude opus 4.8 while preserving chat fallback model", () => {
+    const out = normalizeCodexResponsesRequest({
+      model: "claude-opus-4.8",
+      reasoning: { effort: "high", summary: "auto" },
+    } as never) as { model: string; reasoning?: { effort?: string; summary?: string } }
+
+    expect(out.model).toBe("claude-opus-4.8")
+    expect(out.reasoning?.effort).toBe("medium")
+    expect(out.reasoning?.summary).toBe("auto")
+  })
+
   test("does not infer reasoning effort when omitted", () => {
     const out = normalizeCodexResponsesRequest({
       model: "gpt-5.4",

@@ -8,6 +8,7 @@ import {
 import { getModelCapability } from "~/lib/model-capabilities"
 
 const claudeOpus47 = getModelCapability("claude-opus-4.7")!
+const claudeOpus48 = getModelCapability("claude-opus-4.8")!
 const claudeOpus46 = getModelCapability("claude-opus-4.6")!
 const geminiFlash = getModelCapability("gemini-3-flash-preview")!
 
@@ -149,6 +150,19 @@ describe("chat-fallback: request translation", () => {
       claudeOpus46,
     )
     expect(out.reasoning_effort).toBe("high")
+    expect(out.output_config).toBeUndefined()
+  })
+
+  test("claude-opus-4.8 places medium effort under reasoning_effort", () => {
+    const out = responsesPayloadToChatPayload(
+      {
+        model: "claude-opus-4.8",
+        input: "x",
+        reasoning: { effort: "medium" },
+      },
+      claudeOpus48,
+    )
+    expect(out.reasoning_effort).toBe("medium")
     expect(out.output_config).toBeUndefined()
   })
 

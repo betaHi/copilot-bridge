@@ -43,6 +43,7 @@ describe("model-capabilities: alias + capability lookup", () => {
       "claude-opus-4.7-1m",
       "claude-opus-4.7-high",
       "claude-opus-4.7-xhigh",
+      "claude-opus-4.8",
       "claude-opus-4.6",
       "claude-opus-4.6-1m",
       "gemini-3.1-pro-preview",
@@ -104,6 +105,18 @@ describe("model-capabilities: clampReasoningEffort", () => {
 
   test("claude-opus-4.7 clamps to its advertised medium effort", () => {
     expect(clampReasoningEffort("claude-opus-4.7", "max")).toEqual({
+      effort: "medium",
+      changed: true,
+      reason: "unsupported-effort",
+    })
+  })
+
+  test("claude-opus-4.8 clamps to its advertised medium effort", () => {
+    expect(clampReasoningEffort("claude-opus-4.8", undefined)).toEqual({
+      effort: "medium",
+      changed: false,
+    })
+    expect(clampReasoningEffort("claude-opus-4.8", "high")).toEqual({
       effort: "medium",
       changed: true,
       reason: "unsupported-effort",

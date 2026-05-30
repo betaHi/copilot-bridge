@@ -5,7 +5,7 @@
   <a href="https://github.com/betahi/copilot-bridge/blob/main/LICENSE"><img src="https://img.shields.io/npm/l/betahi-copilot-bridge.svg" alt="license"></a>
 </p>
 
-> Use GitHub Copilot as a local OpenAI/Anthropic-compatible API, so [Codex CLI](https://developers.openai.com/codex/cli), [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview) and Continue can talk to Copilot with minimal configuration.
+> Use GitHub Copilot as a local OpenAI/Anthropic-compatible API, so [Codex CLI](https://developers.openai.com/codex/cli), [Codex App](https://developers.openai.com/codex/app), [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview) and Continue can talk to Copilot with minimal configuration.
 
 > [!CAUTION]
 > This is an unofficial bridge for the GitHub Copilot API and may break if the
@@ -15,7 +15,7 @@
 - [Demo](#demo)
 - [Why this bridge?](#why-this-bridge)
 - [Install & run](#install--run)
-- [Configure Codex CLI](#configure-codex-cli)
+- [Configure Codex CLI or Codex App](#configure-codex-cli-or-codex-app)
 - [Configure Claude Code](#configure-claude-code)
 - [Web Search](#web-search)
 - [Start flags](#start-flags)
@@ -31,6 +31,10 @@
 
 ![Codex demo](assets/screenshots/codex_demo.png)
 
+### Codex App
+
+![Codex App demo](assets/screenshots/codex_app_support.png)
+
 ### Claude Code
 
 ![Claude demo](assets/screenshots/claude_demo.png)
@@ -39,8 +43,9 @@
 
 copilot-bridge is more than a raw HTTP proxy:
 
-1. **Codex and Claude support.** Exposes Codex `/v1/responses`, Claude Code
-   `/v1/messages`, and OpenAI-compatible chat, embeddings, and models routes.
+1. **Codex CLI, Codex App, and Claude support.** Exposes Codex `/v1/responses`,
+   Claude Code `/v1/messages`, and OpenAI-compatible chat, embeddings, and
+   models routes.
 2. **Web search support.** Model-selected web search can be executed by the
    bridge and fed back into a final model pass.
 3. **End-to-end reasoning support.** Normalizes model aliases and
@@ -69,12 +74,13 @@ The bridge exposes both adapter-style endpoints (`/v1/responses`,
 LiteLLM, Continue, Cline and Aider work out of the box. CORS is enabled
 globally for browser-based clients.
 
-## Configure Codex CLI
+## Configure Codex CLI or Codex App
 
-`start` writes a managed block into **`~/.codex/config.toml`**. You don't edit
-between the markers; the bridge regenerates that block on every start. To pin
-the **default model** for `codex` (without passing `-m` every time), add your
-top-level keys above the managed block:
+Codex CLI and Codex App use the same provider config in
+**`~/.codex/config.toml`**. `start` writes a managed block into that file. You
+don't edit between the markers; the bridge regenerates that block on every
+start. To pin the **default model** for Codex clients, add your top-level keys
+above the managed block:
 
 ```toml
 # User defaults; edit these freely.
@@ -273,6 +279,7 @@ accepts upstream.
 
 | Model                            | Reasoning efforts                       | Notes                                  |
 | -------------------------------- | --------------------------------------- | -------------------------------------- |
+| `claude-opus-4.8`                | `medium`                                |                                        |
 | `claude-opus-4.7`                | `medium`                                | Effort sent as `output_config.effort`. |
 | `claude-opus-4.7-1m`             | `low`, `medium`, `high`, `xhigh`        | 1M-token context window, prefer use `claude-opus-4.7-[1m]` in config|
 | `claude-opus-4.7-high`           | `high`                                  | Fixed high reasoning|
