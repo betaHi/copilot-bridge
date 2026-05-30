@@ -52,4 +52,5 @@ describe("applyClaudeConfig", () => {
     expect(parsed.env.ANTHROPIC_AUTH_TOKEN).toBe("custom")
     expect(parsed.env.ANTHROPIC_MODEL).toBe("claude-sonnet-4.6")
   })
+
 })

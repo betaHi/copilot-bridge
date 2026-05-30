@@ -34,6 +34,11 @@ export interface FetchCopilotOptions {
 const shouldRetryResponse = (response: Response): boolean =>
   response.status >= 500 && response.status <= 599
 
+const shouldAttachAutoSessionToken = (path: string): boolean =>
+  runtimeState.autoMode === true
+  && Boolean(runtimeState.autoSessionToken)
+  && (path.startsWith("/chat/completions") || path.startsWith("/responses"))
+
 const buildHeaders = (
   provider: CopilotProviderContext,
   path: string,
@@ -60,8 +65,8 @@ const buildHeaders = (
     headers.set("x-initiator", options.initiator)
   }
 
-  if (runtimeState.autoSessionToken && (path.startsWith("/chat/completions") || path.startsWith("/responses"))) {
-    headers.set("copilot-session-token", runtimeState.autoSessionToken),
+  if (shouldAttachAutoSessionToken(path)) {
+    headers.set("copilot-session-token", runtimeState.autoSessionToken!)
     headers.set("x-github-api-version", AUTO_MODE_API_VERSION)
   }
 

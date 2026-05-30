@@ -74,6 +74,9 @@ const pickBestModel = (models: Array<Model>): Model | undefined =>
     (left, right) => scoreModelCandidate(right) - scoreModelCandidate(left),
   )[0]
 
+const isClaudeMajorOnlyVersion = (modelId: string): boolean =>
+  /^claude-(?:opus|sonnet|haiku)-\d+$/.test(modelId)
+
 const getBestPrefixMatches = (
   models: Array<Model>,
   aliasCandidates: Array<string>,
@@ -86,6 +89,9 @@ const getBestPrefixMatches = (
     const matchedAliasLength = Math.max(
       0,
       ...aliasCandidates.map((candidate) => {
+        if (isClaudeMajorOnlyVersion(candidate)) {
+          return 0
+        }
         const normalizedCandidate = normalizeModelId(candidate)
         return normalizedCandidate.length >= 4
           && normalizedModelId.startsWith(normalizedCandidate)

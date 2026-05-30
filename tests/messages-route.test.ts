@@ -48,40 +48,6 @@ beforeAll(() => {
         },
       },
       {
-        id: "claude-opus-4.7-high",
-        name: "Claude Opus 4.7 High",
-        object: "model",
-        vendor: "Anthropic",
-        version: "1",
-        preview: false,
-        model_picker_enabled: true,
-        capabilities: {
-          family: "claude-opus-4.7",
-          object: "model_capabilities",
-          tokenizer: "o200k_base",
-          type: "chat",
-          limits: {},
-          supports: { tool_calls: true },
-        },
-      },
-      {
-        id: "claude-opus-4.7-xhigh",
-        name: "Claude Opus 4.7 XHigh",
-        object: "model",
-        vendor: "Anthropic",
-        version: "1",
-        preview: false,
-        model_picker_enabled: true,
-        capabilities: {
-          family: "claude-opus-4.7",
-          object: "model_capabilities",
-          tokenizer: "o200k_base",
-          type: "chat",
-          limits: {},
-          supports: { tool_calls: true },
-        },
-      },
-      {
         id: "claude-opus-4.7-1m-internal",
         name: "Claude Opus 4.7 1M",
         object: "model",
@@ -946,18 +912,15 @@ describe("/v1/messages route", () => {
     )
   })
 
-  test("supports Claude opus 4.7 variant ids from Claude CLI", async () => {
+  test("keeps Claude opus 4.7 high-effort requests on the base model", async () => {
     const opus47OneMillionModel = getFixtureModelId("Claude Opus 4.7 1M")
 
     for (const [requestedModel, requestedEffort, expectedModel, expectedEffort] of [
-      ["claude-opus-4.7", "high", "claude-opus-4.7-high", "high"],
-      ["claude-opus-4.7", "xhigh", "claude-opus-4.7-xhigh", "xhigh"],
-      ["claude-opus-4.7", "max", "claude-opus-4.7-xhigh", "xhigh"],
-      ["claude-opus-4.7-high", "xhigh", "claude-opus-4.7-high", "high"],
-      ["claude-opus-4.7-xhigh", "max", "claude-opus-4.7-xhigh", "xhigh"],
+      ["claude-opus-4.7", "low", "claude-opus-4.7", "low"],
+      ["claude-opus-4.7", "high", "claude-opus-4.7", "high"],
+      ["claude-opus-4.7", "xhigh", "claude-opus-4.7", "xhigh"],
+      ["claude-opus-4.7", "max", "claude-opus-4.7", "xhigh"],
       ["claude-opus-4.7-1m", "max", opus47OneMillionModel, "xhigh"],
-      ["opus-4.7-high", "high", "claude-opus-4.7-high", "high"],
-      ["claude-opus-4-7-high", "low", "claude-opus-4.7-high", "high"],
     ] as const) {
       const captured: Array<CapturedRequest> = []
       const upstream = new Response(
@@ -1006,12 +969,13 @@ describe("/v1/messages route", () => {
     }
   })
 
-  test("routes Claude settings opus 4.7 reasoning effort to matching variants", async () => {
+  test("keeps Claude settings opus 4.7 reasoning effort on the base model", async () => {
     for (const [configuredEffort, expectedModel, expectedEffort] of [
+      ["low", "claude-opus-4.7", "low"],
       ["medium", "claude-opus-4.7", "medium"],
-      ["high", "claude-opus-4.7-high", "high"],
-      ["xhigh", "claude-opus-4.7-xhigh", "xhigh"],
-      ["max", "claude-opus-4.7-xhigh", "xhigh"],
+      ["high", "claude-opus-4.7", "high"],
+      ["xhigh", "claude-opus-4.7", "xhigh"],
+      ["max", "claude-opus-4.7", "xhigh"],
     ] as const) {
       const tempHome = await mkdtemp(path.join(os.tmpdir(), "claude-settings-opus47-"))
       process.env.HOME = tempHome
@@ -2416,7 +2380,7 @@ describe("/v1/messages route", () => {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        model: "claude-sonnet-4",
+        model: "claude-sonnet-4.6",
         max_tokens: 1024,
         messages: [
           { role: "user", content: "Inspect local context first." },
@@ -3128,7 +3092,7 @@ describe("/v1/messages route", () => {
       JSON.stringify({
         id: "chatcmpl-thinking",
         created: 1700000000,
-        model: "claude-opus-4.7-high",
+        model: "claude-opus-4.7-1m-internal",
         choices: [
           {
             index: 0,
@@ -3211,9 +3175,9 @@ describe("/v1/messages route", () => {
   test("stream mode returns upstream reasoning as Anthropic thinking events", async () => {
     const captured: Array<CapturedRequest> = []
     const sseBody = [
-      'data: {"id":"cmpl-thinking","object":"chat.completion.chunk","created":1700000001,"model":"claude-opus-4.7-high","choices":[{"index":0,"delta":{"role":"assistant","reasoning_text":"I should answer briefly."},"finish_reason":null,"logprobs":null}],"usage":{"prompt_tokens":10,"completion_tokens":0,"total_tokens":10}}\n\n',
-      'data: {"id":"cmpl-thinking","object":"chat.completion.chunk","created":1700000001,"model":"claude-opus-4.7-high","choices":[{"index":0,"delta":{"content":"OK"},"finish_reason":null,"logprobs":null}],"usage":{"prompt_tokens":10,"completion_tokens":1,"total_tokens":11}}\n\n',
-      'data: {"id":"cmpl-thinking","object":"chat.completion.chunk","created":1700000001,"model":"claude-opus-4.7-high","choices":[{"index":0,"delta":{},"finish_reason":"stop","logprobs":null}],"usage":{"prompt_tokens":10,"completion_tokens":1,"total_tokens":11}}\n\n',
+      'data: {"id":"cmpl-thinking","object":"chat.completion.chunk","created":1700000001,"model":"claude-opus-4.7-1m-internal","choices":[{"index":0,"delta":{"role":"assistant","reasoning_text":"I should answer briefly."},"finish_reason":null,"logprobs":null}],"usage":{"prompt_tokens":10,"completion_tokens":0,"total_tokens":10}}\n\n',
+      'data: {"id":"cmpl-thinking","object":"chat.completion.chunk","created":1700000001,"model":"claude-opus-4.7-1m-internal","choices":[{"index":0,"delta":{"content":"OK"},"finish_reason":null,"logprobs":null}],"usage":{"prompt_tokens":10,"completion_tokens":1,"total_tokens":11}}\n\n',
+      'data: {"id":"cmpl-thinking","object":"chat.completion.chunk","created":1700000001,"model":"claude-opus-4.7-1m-internal","choices":[{"index":0,"delta":{},"finish_reason":"stop","logprobs":null}],"usage":{"prompt_tokens":10,"completion_tokens":1,"total_tokens":11}}\n\n',
       "data: [DONE]\n\n",
     ].join("")
     const upstream = new Response(sseBody, {

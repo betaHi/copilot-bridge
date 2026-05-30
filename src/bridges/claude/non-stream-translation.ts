@@ -81,64 +81,6 @@ const normalizeClaudeModelAlias = (model: string): string => {
   return prefixed
 }
 
-function normalizeClaudeReasoningEffortForRouting(
-  value: string | undefined,
-): ClaudeOpus47Effort | undefined {
-  switch (value?.toLowerCase()) {
-    case "low":
-    case "medium":
-    case "high":
-    case "xhigh":
-    case "max": {
-      return value.toLowerCase() as ClaudeOpus47Effort
-    }
-    default: {
-      return undefined
-    }
-  }
-}
-
-const getEnvValueCaseInsensitive = (
-  env: Record<string, string>,
-  key: string,
-): string | undefined => {
-  const direct = env[key]
-  if (typeof direct === "string") {
-    return direct
-  }
-  const lower = key.toLowerCase()
-  const matched = Object.entries(env).find(([k]) => k.toLowerCase() === lower)
-  return matched?.[1]
-}
-
-const getConfiguredClaudeReasoningEffort = (
-  settings: Pick<ClaudeSettings, "env"> | undefined,
-): string | undefined =>
-  process.env.MODEL_REASONING_EFFORT
-  ?? getEnvValueCaseInsensitive(settings?.env ?? {}, "MODEL_REASONING_EFFORT")
-
-const routeClaudeOpus47ByEffort = (
-  model: string,
-  requestedEffort: string | undefined,
-): string => {
-  if (model !== "claude-opus-4.7") {
-    return model
-  }
-
-  switch (normalizeClaudeReasoningEffortForRouting(requestedEffort)) {
-    case "high": {
-      return "claude-opus-4.7-high"
-    }
-    case "xhigh":
-    case "max": {
-      return "claude-opus-4.7-xhigh"
-    }
-    default: {
-      return model
-    }
-  }
-}
-
 const getConfiguredClaudeDefaultModel = (
   settings: Pick<ClaudeSettings, "env" | "model"> | undefined,
 ): string | undefined => {
@@ -191,15 +133,10 @@ const resolveClaudeRequestedModel = (
 export function translateModelName(
   model: string,
   settings?: Pick<ClaudeSettings, "env" | "model">,
-  requestedReasoningEffort?: string,
 ): string {
   const requestedModel = resolveClaudeRequestedModel(model, settings)
   const normalizedModel = normalizeClaudeModelAlias(requestedModel)
-  const routedModel = routeClaudeOpus47ByEffort(
-    normalizedModel,
-    requestedReasoningEffort ?? getConfiguredClaudeReasoningEffort(settings),
-  )
-  return resolveUpstreamModelId(routedModel)
+  return resolveUpstreamModelId(normalizedModel)
 }
 
 function isClaudeModel(modelId: string): boolean {
@@ -275,7 +212,7 @@ function translateThinking(
   payload: AnthropicMessagesPayload,
   settings?: Pick<ClaudeSettings, "env" | "model">,
 ): ChatCompletionsPayload["thinking"] {
-  const modelId = translateModelName(payload.model, settings, payload.reasoning_effort)
+  const modelId = translateModelName(payload.model, settings)
 
   if (!isClaudeOpus47Model(modelId)) {
     return undefined
@@ -292,7 +229,7 @@ function translateOutputConfig(
   payload: AnthropicMessagesPayload,
   settings?: Pick<ClaudeSettings, "env" | "model">,
 ): ChatCompletionsPayload["output_config"] {
-  const modelId = translateModelName(payload.model, settings, payload.reasoning_effort)
+  const modelId = translateModelName(payload.model, settings)
 
   if (!isClaudeOpus47Model(modelId)) {
     return undefined
@@ -335,7 +272,7 @@ function translateReasoningEffort(
   payload: AnthropicMessagesPayload,
   settings?: Pick<ClaudeSettings, "env" | "model">,
 ): ChatCompletionsPayload["reasoning_effort"] {
-  const modelId = translateModelName(payload.model, settings, payload.reasoning_effort)
+  const modelId = translateModelName(payload.model, settings)
 
   if (isClaudeOpus47Model(modelId)) {
     return undefined
@@ -379,7 +316,7 @@ export function translateToOpenAI(
   settings?: Pick<ClaudeSettings, "env" | "model">,
   toolNameMapper?: AnthropicToolNameMapper,
 ): ChatCompletionsPayload {
-  const model = translateModelName(payload.model, settings, payload.reasoning_effort)
+  const model = translateModelName(payload.model, settings)
   const mapper = toolNameMapper ?? createAnthropicToolNameMapper(payload.tools, {
     ...getToolNameMapperOptionsForModel(model),
   })

@@ -50,7 +50,7 @@ describe("Claude tool name mapping", () => {
     expect(getClaudeToolNameMaxLength("claude-opus-4.7")).toBe(128)
     expect(getClaudeToolNameMaxLength("claude-opus-4.6")).toBe(64)
     expect(getClaudeToolNameMaxLength("claude-opus-4.6-1m")).toBe(64)
-    expect(getClaudeToolNameMaxLength("claude-sonnet-4")).toBe(128)
+    expect(getClaudeToolNameMaxLength("claude-sonnet-4")).toBe(64)
     expect(getClaudeToolNameMaxLength("claude-sonnet-4.6")).toBe(64)
     expect(getClaudeToolNameMaxLength("claude-haiku-4.5")).toBe(64)
     expect(getToolNameMapperOptionsForModel("gemini-3-flash-preview")).toEqual({

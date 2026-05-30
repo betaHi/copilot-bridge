@@ -413,12 +413,13 @@ model_reasoning_effort = "high"
     expect(sseText).toContain('"delta":"Hi"')
   })
 
-  test("Claude opus 4.7 Codex fallback routes reasoning efforts to variants", async () => {
+  test("Claude opus 4.7 Codex fallback keeps base model for supported efforts", async () => {
     for (const [effort, expectedModel, expectedEffort] of [
+      ["low", "claude-opus-4.7", "low"],
       ["medium", "claude-opus-4.7", "medium"],
-      ["high", "claude-opus-4.7-high", "high"],
-      ["xhigh", "claude-opus-4.7-xhigh", "xhigh"],
-      ["max", "claude-opus-4.7-xhigh", "xhigh"],
+      ["high", "claude-opus-4.7", "high"],
+      ["xhigh", "claude-opus-4.7", "xhigh"],
+      ["max", "claude-opus-4.7", "xhigh"],
     ] as const) {
       const captured: Array<CapturedRequest> = []
       const upstream = new Response(

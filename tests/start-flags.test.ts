@@ -14,6 +14,7 @@ describe("start CLI boolean flags", () => {
     expect(parsed["codex-setup"]).toBe(true)
     expect(parsed.debug).toBe(false)
     expect(parsed.prompt).toBe(true)
+    expect(parsed.auto).toBe(false)
   })
 
   test("supports --debug diagnostics flag", () => {
@@ -26,6 +27,12 @@ describe("start CLI boolean flags", () => {
     const parsed = parseArgs(["--model", "claude-opus-4.7-[1m]"], startArgs)
 
     expect(parsed.model).toBe("claude-opus-4.7-[1m]")
+  })
+
+  test("supports --auto diagnostics flag", () => {
+    const parsed = parseArgs(["--auto"], startArgs)
+
+    expect(parsed.auto).toBe(true)
   })
 
   test("supports --no-* negation for setup and prompt flags", () => {

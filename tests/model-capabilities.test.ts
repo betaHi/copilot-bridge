@@ -41,8 +41,6 @@ describe("model-capabilities: alias + capability lookup", () => {
       "claude-opus-4.7",
       "claude-opus-4.7-1m-internal",
       "claude-opus-4.7-1m",
-      "claude-opus-4.7-high",
-      "claude-opus-4.7-xhigh",
       "claude-opus-4.8",
       "claude-opus-4.6",
       "claude-opus-4.6-1m",
@@ -58,8 +56,6 @@ describe("model-capabilities: alias + capability lookup", () => {
       "claude-opus-4.7",
       "claude-opus-4.7-1m-internal",
       "claude-opus-4.7-1m",
-      "claude-opus-4.7-high",
-      "claude-opus-4.7-xhigh",
     ]) {
       expect(getModelCapability(id)?.reasoningField).toBe(
         "output_config.effort",
@@ -103,9 +99,21 @@ describe("model-capabilities: clampReasoningEffort", () => {
     })
   })
 
-  test("claude-opus-4.7 clamps to its advertised medium effort", () => {
+  test("claude-opus-4.7 supports low through xhigh efforts", () => {
+    expect(clampReasoningEffort("claude-opus-4.7", "low")).toEqual({
+      effort: "low",
+      changed: false,
+    })
+    expect(clampReasoningEffort("claude-opus-4.7", "high")).toEqual({
+      effort: "high",
+      changed: false,
+    })
+    expect(clampReasoningEffort("claude-opus-4.7", "xhigh")).toEqual({
+      effort: "xhigh",
+      changed: false,
+    })
     expect(clampReasoningEffort("claude-opus-4.7", "max")).toEqual({
-      effort: "medium",
+      effort: "xhigh",
       changed: true,
       reason: "unsupported-effort",
     })
@@ -123,33 +131,31 @@ describe("model-capabilities: clampReasoningEffort", () => {
     })
   })
 
-  test("claude-opus-4.7 effort variants keep suffix-specific defaults", () => {
+  test("retired claude-opus-4.7 fixed-effort ids are no longer supported aliases", () => {
+    expect(resolveModelId("claude-opus-4.7-high")).toBe(
+      "claude-opus-4.7-high",
+    )
+    expect(resolveModelId("claude-opus-4.7-xhigh")).toBe(
+      "claude-opus-4.7-xhigh",
+    )
+    expect(getModelCapability("claude-opus-4.7-high")).toBeUndefined()
+    expect(getModelCapability("claude-opus-4.7-xhigh")).toBeUndefined()
+  })
+
+  test("retired claude-sonnet-4 id is no longer a supported alias", () => {
+    expect(resolveModelId("claude-sonnet-4")).toBe("claude-sonnet-4")
+    expect(getModelCapability("claude-sonnet-4")).toBeUndefined()
+  })
+
+  test("claude-opus-4.7 1M keeps its default effort", () => {
     expect(clampReasoningEffort("claude-opus-4.7-1m", undefined)).toEqual({
       effort: "medium",
-      changed: false,
-    })
-    expect(clampReasoningEffort("claude-opus-4.7-high", undefined)).toEqual({
-      effort: "high",
-      changed: false,
-    })
-    expect(clampReasoningEffort("claude-opus-4.7-xhigh", undefined)).toEqual({
-      effort: "xhigh",
       changed: false,
     })
   })
 
   test("claude-opus-4.7 effort variants clamp to advertised upstream efforts", () => {
     expect(clampReasoningEffort("claude-opus-4.7-1m", "max")).toEqual({
-      effort: "xhigh",
-      changed: true,
-      reason: "unsupported-effort",
-    })
-    expect(clampReasoningEffort("claude-opus-4.7-high", "low")).toEqual({
-      effort: "high",
-      changed: true,
-      reason: "unsupported-effort",
-    })
-    expect(clampReasoningEffort("claude-opus-4.7-xhigh", "max")).toEqual({
       effort: "xhigh",
       changed: true,
       reason: "unsupported-effort",

@@ -2,9 +2,10 @@ import { defineCommand } from "citty"
 import consola from "consola"
 
 import { setupBridgeAuth } from "~/lib/auth"
-import { enableAutoMode } from "~/lib/auto-session"
+import { disableAutoMode, enableAutoMode } from "~/lib/auto-session"
 import {
   applyClaudeConfig,
+  getClaudeSettings,
   parsePortFromBaseUrl,
   readClaudeBaseUrl,
 } from "~/lib/claude-settings"
@@ -44,6 +45,129 @@ const getPublicModelId = (id: string): string =>
   id === "claude-opus-4.7-1m-internal" ? "claude-opus-4.7-1m" : id
 
 const unique = (ids: Array<string>): Array<string> => [...new Set(ids)]
+
+const AUTO_MODEL_PRIORITY = [
+  "gpt-5.3-codex",
+  "gpt-5.4-mini",
+  "gpt-5-mini",
+  "gpt-4.1",
+  "gpt-4o",
+  "claude-haiku-4.5",
+]
+
+const modelComparableId = (id: string): string =>
+  getPublicModelId(resolveModelId(id))
+
+const isModelInList = (model: string, models: Array<string>): boolean =>
+  models.includes(modelComparableId(model))
+
+const pickPreferredModel = (models: Array<string>): string | undefined =>
+  AUTO_MODEL_PRIORITY.find((id) => models.includes(id)) ?? models[0]
+
+const clearUnsupportedReasoningEffort = (
+  model: string | undefined,
+  effort: string | undefined,
+): string | undefined => {
+  if (!model || !effort) return effort
+  const supported = getModelCapability(model)?.reasoning?.supported
+  return supported && !supported.includes(effort as never) ? undefined : effort
+}
+
+const CLAUDE_MODEL_ENV_KEYS = [
+  "ANTHROPIC_MODEL",
+  "ANTHROPIC_DEFAULT_OPUS_MODEL",
+  "ANTHROPIC_DEFAULT_SONNET_MODEL",
+  "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+  "ANTHROPIC_SMALL_FAST_MODEL",
+] as const
+
+const normalizeConfiguredModelId = (model: string): string =>
+  model.trim().toLowerCase().replace(/[._]/g, "-")
+
+const getRetiredModelWarning = (
+  model: string | undefined,
+  client: "claude" | "codex",
+): string | undefined => {
+  if (!model) return undefined
+
+  switch (normalizeConfiguredModelId(model)) {
+    case "claude-sonnet-4": {
+      return 'use "claude-sonnet-4.6" instead'
+    }
+    case "opus-4-7-high":
+    case "claude-opus-4-7-high": {
+      return client === "claude" ?
+          'use "claude-opus-4.7" with MODEL_REASONING_EFFORT=high'
+        : 'use "claude-opus-4.7" with model_reasoning_effort = "high"'
+    }
+    case "opus-4-7-xhigh":
+    case "claude-opus-4-7-xhigh": {
+      return client === "claude" ?
+          'use "claude-opus-4.7" with MODEL_REASONING_EFFORT=xhigh'
+        : 'use "claude-opus-4.7" with model_reasoning_effort = "xhigh"'
+    }
+    default: {
+      return undefined
+    }
+  }
+}
+
+const warnRetiredModelConfig = (
+  label: string,
+  model: string | undefined,
+  client: "claude" | "codex",
+) => {
+  const warning = getRetiredModelWarning(model, client)
+  if (!warning || !model) return
+  consola.warn(
+    `${label} model "${model}" is retired and may fail upstream; ${warning}.`,
+  )
+}
+
+const warnRetiredClaudeSettings = async () => {
+  const settings = await getClaudeSettings()
+  warnRetiredModelConfig("Claude settings model", settings.model, "claude")
+  for (const key of CLAUDE_MODEL_ENV_KEYS) {
+    warnRetiredModelConfig(
+      `Claude settings env.${key}`,
+      settings.env[key],
+      "claude",
+    )
+  }
+}
+
+export const resolveAutoCodexModel = (input: {
+  currentModel: string | undefined
+  currentEffort: string | undefined
+  requestedModel: string | undefined
+  pickableModels: Array<string>
+  prompt: boolean
+}): { model: string | undefined; effort: string | undefined; changed: boolean } => {
+  const { currentModel, currentEffort, pickableModels, prompt, requestedModel } = input
+
+  if (requestedModel) {
+    return { model: currentModel, effort: currentEffort, changed: false }
+  }
+
+  if (currentModel && isModelInList(currentModel, pickableModels)) {
+    return { model: currentModel, effort: currentEffort, changed: false }
+  }
+
+  if (!currentModel && prompt) {
+    return { model: currentModel, effort: currentEffort, changed: false }
+  }
+
+  const replacement = pickPreferredModel(pickableModels)
+  if (!replacement) {
+    return { model: currentModel, effort: currentEffort, changed: false }
+  }
+
+  return {
+    model: replacement,
+    effort: clearUnsupportedReasoningEffort(replacement, currentEffort),
+    changed: replacement !== currentModel,
+  }
+}
 
 const fetchAvailableModels = async (
   config: ReturnType<typeof readBridgeConfig>,
@@ -174,6 +298,9 @@ export const start = defineCommand({
 
     const config = readBridgeConfig({ host, port })
     runtimeState.debug = Boolean(args.debug)
+    if (!args.auto) {
+      disableAutoMode()
+    }
 
     if (runtimeState.debug) {
       consola.info("Debug mode enabled; upstream errors include request summaries")
@@ -224,10 +351,9 @@ export const start = defineCommand({
       delete runtimeState.modelOverride
     }
 
-    // Sync Claude Code's settings.json and Codex's config.toml *before* any
-    // potentially blocking interactive prompt. This guarantees `claude` and
-    // `codex` work the moment the server is listening — even if the user
-    // never answers the model picker below.
+    // Sync Claude Code's settings.json before any potentially blocking prompt.
+    // Codex config is stamped after model discovery below, so --auto can avoid
+    // preserving a model that is unavailable to the auto-mode session.
     if (args["claude-setup"]) {
       try {
         const claudeResult = await applyClaudeConfig({
@@ -266,6 +392,8 @@ export const start = defineCommand({
     let chosenModel: string | undefined = codexUserConfig.model
     let chosenEffort: string | undefined =
       codexUserConfig.modelReasoningEffort
+    warnRetiredModelConfig("Codex config", chosenModel, "codex")
+    await warnRetiredClaudeSettings()
 
     if (chosenModel && !chosenEffort) {
       const capability = getModelCapability(chosenModel)
@@ -284,7 +412,8 @@ export const start = defineCommand({
       }
     }
 
-    if (args["codex-setup"]) {
+    const writeCodexConfig = async (mode: "initial" | "updated") => {
+      if (!args["codex-setup"]) return
       try {
         const result = await applyCodexConfig({
           baseUrl: `${baseUrl}/v1`,
@@ -295,17 +424,21 @@ export const start = defineCommand({
           modelContextWindow: getCodexModelContextWindow(chosenModel),
         })
         if (result.changed) {
-          consola.success(
-            `codex config ${result.created ? "created" : "updated"}: ${result.configPath}`,
-          )
-          if (CODEX_DEFAULTS.setAsDefault) {
-            consola.info(
-              `codex now defaults to provider "${CODEX_DEFAULTS.providerId}". Run \`codex exec "..."\` directly.`,
-            )
-          } else {
-            consola.info(
-              `provider "${CODEX_DEFAULTS.providerId}" registered. Use \`codex -c model_provider="${CODEX_DEFAULTS.providerId}" ...\``,
-            )
+          const action =
+            mode === "updated" ? "updated"
+            : result.created ? "created"
+            : "updated"
+          consola.success(`codex config ${action}: ${result.configPath}`)
+          if (mode === "initial") {
+            if (CODEX_DEFAULTS.setAsDefault) {
+              consola.info(
+                `codex now defaults to provider "${CODEX_DEFAULTS.providerId}". Run \`codex exec "..."\` directly.`,
+              )
+            } else {
+              consola.info(
+                `provider "${CODEX_DEFAULTS.providerId}" registered. Use \`codex -c model_provider="${CODEX_DEFAULTS.providerId}" ...\``,
+              )
+            }
           }
         } else {
           consola.info(`codex config already up to date: ${result.configPath}`)
@@ -317,14 +450,17 @@ export const start = defineCommand({
         )
       }
     }
-    
-    let models
+
+    const isAutoMode = Boolean(args.auto)
+    let models: Array<string>
     if (args.auto) {
       const session = await enableAutoMode(config)
       models = session.available_models ?? []
-    }
-    else {
-      models = await fetchAvailableModels(config)    
+      consola.info(
+        "Auto mode enabled; session token is attached only to /chat/completions and /responses upstream requests.",
+      )
+    } else {
+      models = await fetchAvailableModels(config)
     }
     const supportedIds = new Set(
       MODEL_CAPABILITIES.flatMap((m) => [m.id, ...(m.aliases ?? [])]),
@@ -339,11 +475,15 @@ export const start = defineCommand({
             .filter((id) => supportedIds.has(id))
             .map((id) => getPublicModelId(id)),
         )
+      : isAutoMode ? []
       : fallbackModelIds
-    const finalPickable = pickable.length > 0 ? pickable : fallbackModelIds
+    const finalPickable =
+      pickable.length > 0 ? pickable
+      : isAutoMode ? []
+      : fallbackModelIds
     if (models.length > 0) {
       consola.info(
-        `Available models:\n${models
+        `${isAutoMode ? "Auto available models" : "Available models"}:\n${models
           .map((id) => {
             const publicId = getPublicModelId(id)
             return `- ${publicId}${supportedIds.has(id) ? " (bridge-supported)" : ""}`
@@ -351,8 +491,46 @@ export const start = defineCommand({
           .join("\n")}`,
       )
     } else {
-      consola.warn("Could not fetch model list from upstream Copilot API")
+      consola.warn(
+        isAutoMode ?
+          "Auto mode did not return an available model list"
+        : "Could not fetch model list from upstream Copilot API",
+      )
     }
+
+    if (isAutoMode && finalPickable.length === 0 && !requestedModel) {
+      consola.error(
+        "Auto mode did not return any bridge-supported models. Retry later or pass --model with an auto-available model.",
+      )
+      process.exit(1)
+    }
+
+    if (isAutoMode) {
+      if (requestedModel && finalPickable.length > 0 && !isModelInList(requestedModel, finalPickable)) {
+        consola.warn(
+          `Runtime model override "${requestedModel}" is not in the auto-mode available model list; upstream may reject it.`,
+        )
+      }
+
+      const autoSelection = resolveAutoCodexModel({
+        currentEffort: chosenEffort,
+        currentModel: chosenModel,
+        pickableModels: finalPickable,
+        prompt: Boolean(args.prompt),
+        requestedModel,
+      })
+      if (autoSelection.changed) {
+        consola.warn(
+          chosenModel ?
+            `Auto mode: codex model "${chosenModel}" is not available to Auto; using "${autoSelection.model}".`
+          : `Auto mode: using "${autoSelection.model}" as the Codex default model.`,
+        )
+        chosenModel = autoSelection.model
+        chosenEffort = autoSelection.effort
+      }
+    }
+
+    await writeCodexConfig("initial")
 
     consola.box(
       [
@@ -397,17 +575,7 @@ export const start = defineCommand({
         // Re-stamp codex config with the user's freshly picked model.
         if (args["codex-setup"]) {
           try {
-            const result = await applyCodexConfig({
-              baseUrl: `${baseUrl}/v1`,
-              configPath: codexConfigPath,
-              settings: CODEX_DEFAULTS,
-              model: chosenModel,
-              modelReasoningEffort: chosenEffort,
-              modelContextWindow: getCodexModelContextWindow(chosenModel),
-            })
-            if (result.changed) {
-              consola.success(`codex config updated: ${result.configPath}`)
-            }
+            await writeCodexConfig("updated")
           } catch (error) {
             consola.warn(
               `Could not update codex config (${codexConfigPath}):`,

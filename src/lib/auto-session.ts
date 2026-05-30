@@ -11,6 +11,7 @@ interface AutoSessionResponse {
 
 const AUTO_MODE_BODY = { auto_mode: { model_hints: ["auto"] } }
 const FALLBACK_REFRESH_SECONDS = 30 * 60
+let refreshTimer: ReturnType<typeof setTimeout> | undefined
 
 const parseExpiresAt = (value: number | string | undefined): number | undefined => {
   if (typeof value === "number" && Number.isFinite(value)) {
@@ -68,12 +69,16 @@ const applyAutoSession = async (config: BridgeConfig) => {
 }
 
 const scheduleAutoSessionRefresh = (config: BridgeConfig) => {
+  if (refreshTimer) {
+    clearTimeout(refreshTimer)
+  }
+
   const now = Math.floor(Date.now() / 1000)
   const expiresAt =
     runtimeState.autoExpiresAt ?? now + FALLBACK_REFRESH_SECONDS
   const refreshIn = Math.max(expiresAt - now - 60, 60)
 
-  const timer = setTimeout(async () => {
+  refreshTimer = setTimeout(async () => {
     try {
       await applyAutoSession(config)
       consola.debug("Refreshed Copilot auto-mode session token")
@@ -84,14 +89,26 @@ const scheduleAutoSessionRefresh = (config: BridgeConfig) => {
     }
   }, refreshIn * 1000)
 
-  if (typeof timer.unref === "function") {
-    timer.unref()
+  if (typeof refreshTimer.unref === "function") {
+    refreshTimer.unref()
   }
+}
+
+export const disableAutoMode = () => {
+  if (refreshTimer) {
+    clearTimeout(refreshTimer)
+    refreshTimer = undefined
+  }
+  delete runtimeState.autoMode
+  delete runtimeState.autoSessionToken
+  delete runtimeState.autoExpiresAt
+  delete runtimeState.autoAvailableModels
 }
 
 export const enableAutoMode = async (
   config: BridgeConfig,
 ): Promise<AutoSessionResponse> => {
+  disableAutoMode()
   const data = await applyAutoSession(config)
   runtimeState.autoMode = true
   scheduleAutoSessionRefresh(config)

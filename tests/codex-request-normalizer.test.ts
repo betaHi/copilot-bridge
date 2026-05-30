@@ -21,7 +21,11 @@ describe("codex /v1/responses request normalizer", () => {
     expect(out.reasoning?.effort).toBe("high")
   })
 
-  test("routes base Claude opus 4.7 to reasoning variants for Codex efforts", () => {
+  test("keeps base Claude opus 4.7 for all supported Codex efforts", () => {
+    const low = normalizeCodexResponsesRequest({
+      model: "claude-opus-4.7",
+      reasoning: { effort: "low" },
+    } as never) as { model: string; reasoning?: { effort?: string } }
     const high = normalizeCodexResponsesRequest({
       model: "claude-opus-4.7",
       reasoning: { effort: "high" },
@@ -35,12 +39,28 @@ describe("codex /v1/responses request normalizer", () => {
       reasoning: { effort: "max" },
     } as never) as { model: string; reasoning?: { effort?: string } }
 
-    expect(high.model).toBe("claude-opus-4.7-high")
+    expect(low.model).toBe("claude-opus-4.7")
+    expect(low.reasoning?.effort).toBe("low")
+    expect(high.model).toBe("claude-opus-4.7")
     expect(high.reasoning?.effort).toBe("high")
-    expect(xhigh.model).toBe("claude-opus-4.7-xhigh")
+    expect(xhigh.model).toBe("claude-opus-4.7")
     expect(xhigh.reasoning?.effort).toBe("xhigh")
-    expect(max.model).toBe("claude-opus-4.7-xhigh")
+    expect(max.model).toBe("claude-opus-4.7")
     expect(max.reasoning?.effort).toBe("xhigh")
+  })
+
+  test("does not rewrite retired Claude opus 4.7 fixed-effort ids", () => {
+    const high = normalizeCodexResponsesRequest({
+      model: "claude-opus-4.7-high",
+    } as never) as { model: string; reasoning?: { effort?: string } }
+    const xhigh = normalizeCodexResponsesRequest({
+      model: "claude-opus-4.7-xhigh",
+    } as never) as { model: string; reasoning?: { effort?: string } }
+
+    expect(high.model).toBe("claude-opus-4.7-high")
+    expect(high.reasoning).toBeUndefined()
+    expect(xhigh.model).toBe("claude-opus-4.7-xhigh")
+    expect(xhigh.reasoning).toBeUndefined()
   })
 
   test("strips reasoning for models without reasoning support (gemini)", () => {
@@ -96,7 +116,7 @@ describe("codex /v1/responses request normalizer", () => {
     expect(out.reasoning?.summary).toBe("auto")
   })
 
-  test("routes configured Claude opus 4.7 Codex effort to variant", () => {
+  test("injects configured Claude opus 4.7 Codex effort without changing model", () => {
     const out = normalizeCodexResponsesRequest(
       {
         model: "claude-opus-4.7",
@@ -105,7 +125,7 @@ describe("codex /v1/responses request normalizer", () => {
       "high",
     ) as { model: string; reasoning?: { effort?: string } }
 
-    expect(out.model).toBe("claude-opus-4.7-high")
+    expect(out.model).toBe("claude-opus-4.7")
     expect(out.reasoning?.effort).toBe("high")
   })
 

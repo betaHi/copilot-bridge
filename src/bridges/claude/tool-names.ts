@@ -31,10 +31,6 @@ export const getToolNameMapperOptionsForModel = (
     return { allowDots: false, maxNameLength: EXTENDED_TOOL_NAME_MAX_LENGTH }
   }
 
-  if (/^claude-sonnet-4(?:$|-\d{8}$)/.test(normalized)) {
-    return { allowDots: false, maxNameLength: EXTENDED_TOOL_NAME_MAX_LENGTH }
-  }
-
   if (normalized.startsWith("gemini-")) {
     return { allowDots: true, maxNameLength: EXTENDED_TOOL_NAME_MAX_LENGTH }
   }

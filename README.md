@@ -219,6 +219,7 @@ Common:
 | `--host <host>` | Bind address. Defaults to `127.0.0.1`. |
 | `--port <port>` | Listen port. Overrides `$PORT` and the port inferred from Claude settings. |
 | `--model <model>` | Override the request model for this bridge process only; does not edit config files. |
+| `--auto` | Acquire a Copilot Auto session and attach its session token only to upstream `/chat/completions` and `/responses` requests. Codex model selection is limited to Auto-available models. |
 | `--rate-limit <seconds>` | Enforce a minimum delay between upstream requests. |
 | `--wait` | With `--rate-limit`, wait instead of returning HTTP 429. |
 
@@ -280,21 +281,14 @@ accepts upstream.
 | Model                            | Reasoning efforts                       | Notes                                  |
 | -------------------------------- | --------------------------------------- | -------------------------------------- |
 | `claude-opus-4.8`                | `medium`                                |                                        |
-| `claude-opus-4.7`                | `medium`                                | Effort sent as `output_config.effort`. |
-| `claude-opus-4.7-1m`             | `low`, `medium`, `high`, `xhigh`        | 1M-token context window, prefer use `claude-opus-4.7-[1m]` in config|
-| `claude-opus-4.7-high`           | `high`                                  | Fixed high reasoning|
-| `claude-opus-4.7-xhigh`          | `xhigh`                                 | Fixed extra-high reasoning|
+| `claude-opus-4.7`                | `low`, `medium`, `high`, `xhigh`        | Effort sent as `output_config.effort`. |
+| `claude-opus-4.7-1m`             | `low`, `medium`, `high`, `xhigh`        | 1M-token context window, prefer use `claude-opus-4.7-[1m]` in config. |
 | `claude-opus-4.6`                | `low`, `medium`, `high`                 |                                        |
 | `claude-opus-4.6-1m`             | `low`, `medium`, `high`                 | 1M-token context window, prefer use `claude-opus-4.6-[1m]` in config              |
 | `claude-sonnet-4.6`              | `low`, `medium`, `high`                 |                                        |
 | `claude-opus-4.5`                | —                                       | Reasoning not accepted upstream.       |
 | `claude-sonnet-4.5`              | —                                       | Reasoning not accepted upstream.       |
-| `claude-sonnet-4`                | —                                       | Reasoning not accepted upstream.       |
 | `claude-haiku-4.5`               | —                                       | Reasoning not accepted upstream.       |
-
-For Claude Opus 4.7, both Codex CLI and Claude Code can use
-`claude-opus-4.7` with reasoning effort `high` or `xhigh`; the bridge routes the
-request to the matching upstream reasoning variant.
 
 For Claude Code settings, prefer `claude-opus-4.7-[1m]` or
 `claude-opus-4.6-[1m]` when you want the CLI `/context` UI and the upstream

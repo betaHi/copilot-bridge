@@ -102,15 +102,17 @@ export const MODEL_CAPABILITIES: ReadonlyArray<ModelCapability> = [
   // translate to /v1/chat/completions. Only opus-4.7 places effort under
   // output_config.effort; the others use the standard reasoning_effort.
   ...[
-    { id: "claude-opus-4.7", supported: ["medium"], defaultEffort: "medium" },
+    {
+      id: "claude-opus-4.7",
+      supported: ["low", "medium", "high", "xhigh"],
+      defaultEffort: "medium",
+    },
     {
       id: "claude-opus-4.7-1m-internal",
       aliases: ["claude-opus-4.7-1m"],
       supported: ["low", "medium", "high", "xhigh"],
       defaultEffort: "medium",
     },
-    { id: "claude-opus-4.7-high", supported: ["high"], defaultEffort: "high" },
-    { id: "claude-opus-4.7-xhigh", supported: ["xhigh"], defaultEffort: "xhigh" },
   ].map(
     ({ id, aliases, supported, defaultEffort }): ModelCapability => ({
       id,
@@ -161,10 +163,6 @@ export const MODEL_CAPABILITIES: ReadonlyArray<ModelCapability> = [
   },
   {
     id: "claude-sonnet-4.5",
-    fallback: "chat-completions",
-  },
-  {
-    id: "claude-sonnet-4",
     fallback: "chat-completions",
   },
   {

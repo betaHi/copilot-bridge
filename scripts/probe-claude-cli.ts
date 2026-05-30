@@ -19,16 +19,13 @@ const CASES: Case[] = [
   { model: "gpt-5.2-codex", efforts: ["low", "medium", "high", "xhigh"] },
   { model: "gpt-5-mini", efforts: ["low", "medium", "high"] },
   // Claude
-  { model: "claude-opus-4.7", efforts: ["medium"] },
+  { model: "claude-opus-4.7", efforts: ["low", "medium", "high", "xhigh"] },
   { model: "claude-opus-4.7-1m", efforts: ["low", "medium", "high", "xhigh"] },
-  { model: "claude-opus-4.7-high", efforts: ["high"] },
-  { model: "claude-opus-4.7-xhigh", efforts: ["xhigh"] },
   { model: "claude-opus-4.6", efforts: ["low", "medium", "high"] },
   { model: "claude-opus-4.6-1m", efforts: ["low", "medium", "high"] },
   { model: "claude-sonnet-4.6", efforts: ["low", "medium", "high"] },
   { model: "claude-opus-4.5", efforts: [null] },
   { model: "claude-sonnet-4.5", efforts: [null] },
-  { model: "claude-sonnet-4", efforts: [null] },
   { model: "claude-haiku-4.5", efforts: [null] },
   // Gemini
   { model: "gemini-3.1-pro-preview", efforts: [null] },

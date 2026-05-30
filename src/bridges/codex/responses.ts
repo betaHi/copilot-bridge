@@ -36,28 +36,6 @@ const removeReasoningEffort = (reasoning: ReasoningField): ReasoningField | unde
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value)
 
-const routeClaudeOpus47ByReasoningEffort = (
-  model: string,
-  effort: unknown,
-): string => {
-  if (model !== "claude-opus-4.7") {
-    return model
-  }
-
-  switch (typeof effort === "string" ? effort.toLowerCase() : undefined) {
-    case "high": {
-      return "claude-opus-4.7-high"
-    }
-    case "xhigh":
-    case "max": {
-      return "claude-opus-4.7-xhigh"
-    }
-    default: {
-      return model
-    }
-  }
-}
-
 export const normalizeCodexResponsesRequest = (
   payload: CodexResponsesRequest,
   configuredReasoningEffort?: unknown,
@@ -65,14 +43,7 @@ export const normalizeCodexResponsesRequest = (
   const parsed = codexResponsesRequestSchema.parse(payload) as CodexResponsesRequest
     & { reasoning?: ReasoningField; text?: TextField }
 
-  const incomingReasoning =
-    isPlainObject(parsed.reasoning) ? (parsed.reasoning as ReasoningField) : undefined
-  const requestedReasoningEffort =
-    incomingReasoning?.effort ?? configuredReasoningEffort
-  const canonical = routeClaudeOpus47ByReasoningEffort(
-    resolveModelId(parsed.model),
-    requestedReasoningEffort,
-  )
+  const canonical = resolveModelId(parsed.model)
   const capability = getModelCapability(canonical)
   if (!capability) return parsed
 
@@ -87,10 +58,11 @@ export const normalizeCodexResponsesRequest = (
 
   if ("reasoning" in next) {
     if (!isPlainObject(next.reasoning)) {
-      if (configuredReasoningEffort === undefined || configuredReasoningEffort === null) {
+      const effort = configuredReasoningEffort
+      if (effort === undefined || effort === null) {
         delete (next as Record<string, unknown>).reasoning
       } else {
-        const clamped = clampReasoningEffort(canonical, configuredReasoningEffort)
+        const clamped = clampReasoningEffort(canonical, effort)
         if (clamped) {
           next.reasoning = { effort: clamped.effort }
         }
@@ -112,8 +84,13 @@ export const normalizeCodexResponsesRequest = (
         }
       }
     }
-  } else if (configuredReasoningEffort !== undefined && configuredReasoningEffort !== null) {
-    const clamped = clampReasoningEffort(canonical, configuredReasoningEffort)
+  } else if (
+    configuredReasoningEffort !== undefined && configuredReasoningEffort !== null
+  ) {
+    const clamped = clampReasoningEffort(
+      canonical,
+      configuredReasoningEffort,
+    )
     if (clamped) {
       next.reasoning = { effort: clamped.effort }
     }

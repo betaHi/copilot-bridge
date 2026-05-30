@@ -22,15 +22,9 @@ describe("models-resolver: Claude snapshot aliases", () => {
     )
   })
 
-  test("maps Claude opus 4.7 variant aliases to dotted upstream ids", () => {
+  test("maps Claude opus 4.7 1M aliases to dotted upstream ids", () => {
     expect(resolveUpstreamModelId("claude-opus-4.7-1m", [])).toBe(
       "claude-opus-4.7-1m-internal",
-    )
-    expect(resolveUpstreamModelId("claude-opus-4-7-high", [])).toBe(
-      "claude-opus-4.7-high",
-    )
-    expect(resolveUpstreamModelId("claude-opus-4-7-xhigh", [])).toBe(
-      "claude-opus-4.7-xhigh",
     )
     expect(resolveUpstreamModelId("claude-opus-4-7-1m-internal", [])).toBe(
       "claude-opus-4.7-1m-internal",
@@ -40,6 +34,32 @@ describe("models-resolver: Claude snapshot aliases", () => {
   test("normalizes Claude snapshot aliases even when the date suffix is omitted", () => {
     expect(resolveUpstreamModelId("claude-sonnet-4-6", [])).toBe(
       "claude-sonnet-4.6",
+    )
+  })
+
+  test("does not upcast retired Claude major-only ids to a newer minor", () => {
+    const models: Array<Model> = [
+      {
+        id: "claude-sonnet-4.6",
+        name: "Claude Sonnet 4.6",
+        object: "model",
+        vendor: "Anthropic",
+        version: "1",
+        preview: false,
+        model_picker_enabled: true,
+        capabilities: {
+          family: "claude-sonnet-4.6",
+          limits: {},
+          object: "model_capabilities",
+          supports: { tool_calls: true },
+          tokenizer: "o200k_base",
+          type: "chat",
+        },
+      },
+    ]
+
+    expect(resolveUpstreamModelId("claude-sonnet-4", models)).toBe(
+      "claude-sonnet-4",
     )
   })
 
