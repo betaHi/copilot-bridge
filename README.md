@@ -46,9 +46,10 @@ copilot-bridge is more than a raw HTTP proxy:
 1. **Codex CLI, Codex App, and Claude support.** Exposes Codex `/v1/responses`,
    Claude Code `/v1/messages`, and OpenAI-compatible chat, embeddings, and
    models routes.
-2. **Web search support.** Model-selected web search can be executed by the
+2. **Tool call compatibility.** Adapts MCP tool names and tool call payloads to each upstream model's constraints, then restores the original tool identity for the client. This keeps real Claude Code and Codex CLI agent workflows working when MCP plugins expose long or model-incompatible tool names.
+3. **Web search support.** Model-selected web search can be executed by the
    bridge and fed back into a final model pass.
-3. **End-to-end reasoning support.** Normalizes model aliases and
+4. **End-to-end reasoning support.** Normalizes model aliases and
    `reasoning_effort`, routes through the right upstream API, and preserves
    returned `reasoning_text` / `reasoning_content` in streaming and
    non-streaming responses.
