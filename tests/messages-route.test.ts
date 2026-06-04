@@ -413,9 +413,16 @@ describe("/v1/messages route", () => {
     })
   })
 
-  test("keeps long MCP tool names for Claude models with 128-char upstream support", async () => {
+  test("shortens Microsoft Learn MCP tool names for Claude opus 4.7 xhigh requests", async () => {
     const originalToolName =
       "mcp__plugin_microsoft-docs_microsoft-learn__microsoft_code_sample_search"
+    const originalSecondToolName =
+      "mcp__plugin_microsoft-docs_microsoft-learn__microsoft_docs_search"
+    const fillerTools = Array.from({ length: 38 }, (_, index) => ({
+      name: `tool_${index}`,
+      description: `Filler tool ${index}`,
+      input_schema: { type: "object", properties: {} },
+    }))
     const captured: Array<CapturedRequest> = []
     const upstream = (request: CapturedRequest) => {
       const body = request.body as {
@@ -458,38 +465,45 @@ describe("/v1/messages route", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         model: "claude-opus-4.7",
-        max_tokens: 1024,
-        messages: [{ role: "user", content: "search docs" }],
+        max_tokens: 32000,
+        stream: true,
+        reasoning_effort: "xhigh",
+        messages: [
+          { role: "user", content: "hello" },
+          { role: "assistant", content: "Hi" },
+          { role: "user", content: "use docs if needed" },
+          { role: "user", content: "hello" },
+        ],
         tools: [
           {
             name: originalToolName,
             description: "Search Microsoft Learn code samples",
             input_schema: { type: "object", properties: {} },
           },
+          {
+            name: originalSecondToolName,
+            description: "Search Microsoft Learn docs",
+            input_schema: { type: "object", properties: {} },
+          },
+          ...fillerTools,
         ],
       }),
     })
 
     expect(res.status).toBe(200)
     const upstreamBody = captured[0].body as {
+      output_config?: { effort?: string }
       tools?: Array<{ function: { name: string } }>
     }
-    expect(upstreamBody.tools?.[0]?.function.name).toBe(originalToolName)
-
-    const json = (await res.json()) as {
-      content: Array<{
-        id?: string
-        input?: Record<string, unknown>
-        name?: string
-        type: string
-      }>
+    const upstreamToolNames = upstreamBody.tools?.map((tool) => tool.function.name) ?? []
+    expect(upstreamBody.output_config).toEqual({ effort: "xhigh" })
+    expect(upstreamToolNames).toHaveLength(40)
+    expect(upstreamToolNames[0]).not.toBe(originalToolName)
+    expect(upstreamToolNames[1]).not.toBe(originalSecondToolName)
+    for (const upstreamToolName of upstreamToolNames) {
+      expect(upstreamToolName.length).toBeLessThanOrEqual(64)
+      expect(upstreamToolName).toMatch(/^[A-Za-z0-9_-]+$/)
     }
-    expect(json.content).toContainEqual({
-      type: "tool_use",
-      id: "call_1",
-      name: originalToolName,
-      input: {},
-    })
   })
 
   test("shortens long MCP tool names for claude-opus-4.6 and restores them", async () => {
