@@ -153,16 +153,16 @@ describe("chat-fallback: request translation", () => {
     expect(out.output_config).toBeUndefined()
   })
 
-  test("claude-opus-4.8 places medium effort under reasoning_effort", () => {
+  test("claude-opus-4.8 places supported effort under reasoning_effort", () => {
     const out = responsesPayloadToChatPayload(
       {
         model: "claude-opus-4.8",
         input: "x",
-        reasoning: { effort: "medium" },
+        reasoning: { effort: "xhigh" },
       },
       claudeOpus48,
     )
-    expect(out.reasoning_effort).toBe("medium")
+    expect(out.reasoning_effort).toBe("xhigh")
     expect(out.output_config).toBeUndefined()
   })
 

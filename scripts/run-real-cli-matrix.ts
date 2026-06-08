@@ -14,6 +14,7 @@ import os from "node:os"
 import path from "node:path"
 
 import {
+  clampReasoningEffort,
   MODEL_CAPABILITIES,
   type ModelCapability,
   type ReasoningEffort,
@@ -26,6 +27,7 @@ interface MatrixCase {
   family: "gpt" | "claude" | "gemini"
   model: string
   upstreamModel: string
+  clientEffort: ReasoningEffort | null
   effort: ReasoningEffort | null
   reasoningField: ModelCapability["reasoningField"] | "reasoning.effort" | null
 }
@@ -127,10 +129,28 @@ const PROJECT_CLAUDE_SETTINGS = path.join(
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
-const publicModelId = (capability: ModelCapability): string =>
-  capability.aliases?.includes("claude-opus-4.7-1m") ?
-    "claude-opus-4.7-1m"
-  : capability.id
+const codexCliEffort = (effort: ReasoningEffort | null): ReasoningEffort | null =>
+  effort === "max" ? "xhigh" : effort
+
+const expectedUpstreamEffort = (
+  model: string,
+  clientEffort: ReasoningEffort | null,
+): ReasoningEffort | null => {
+  if (!clientEffort) return null
+  return clampReasoningEffort(model, clientEffort)?.effort ?? clientEffort
+}
+
+const publicModelIds = (capability: ModelCapability): Array<string> => {
+  if (capability.id === "claude-opus-4.7-1m-internal") {
+    return ["claude-opus-4.7-1m"]
+  }
+
+  if (capability.id === "claude-opus-4.8") {
+    return ["claude-opus-4.8", "claude-opus-4.8-1m"]
+  }
+
+  return [capability.id]
+}
 
 const familyOf = (model: string): MatrixCase["family"] | undefined => {
   if (model.startsWith("gpt-")) return "gpt"
@@ -140,7 +160,7 @@ const familyOf = (model: string): MatrixCase["family"] | undefined => {
 }
 
 const shouldUseResponsesApiForModel = (model: string): boolean =>
-  /^(?:gpt-5\.5|gpt-5\.4-mini|gpt-5\.3-codex|gpt-5\.2-codex)(?:-|$)/i.test(
+  /^(?:gpt-5\.5|gpt-5\.4-mini|gpt-5\.3-codex)(?:-|$)/i.test(
     model,
   )
 
@@ -178,17 +198,22 @@ const buildMatrix = (): Array<MatrixCase> => {
 
     const efforts = capability.reasoning?.supported ?? [null]
     for (const client of clients) {
-      for (const effort of efforts) {
-        if (ONLY_MODEL && publicModelId(capability) !== ONLY_MODEL) continue
-        if (ONLY_EFFORT && String(effort ?? "none") !== ONLY_EFFORT) continue
-        cases.push({
-          client,
-          family,
-          model: publicModelId(capability),
-          upstreamModel: capability.id,
-          effort,
-          reasoningField: expectedReasoningField(capability, client),
-        })
+      for (const model of publicModelIds(capability)) {
+        for (const effort of efforts) {
+          if (ONLY_MODEL && model !== ONLY_MODEL) continue
+          const clientEffort = client === "codex" ? codexCliEffort(effort) : effort
+          if (ONLY_EFFORT && String(clientEffort ?? "none") !== ONLY_EFFORT) continue
+          const upstreamEffort = expectedUpstreamEffort(capability.id, clientEffort)
+          cases.push({
+            client,
+            family,
+            model,
+            upstreamModel: capability.id,
+            clientEffort,
+            effort: upstreamEffort,
+            reasoningField: expectedReasoningField(capability, client),
+          })
+        }
       }
     }
   }
@@ -654,15 +679,15 @@ const runCodexCase = async (
   const codexHome = path.join(rootDir, "codex-home")
   const workdir = path.join(
     rootDir,
-    `codex-work-${testCase.model}-${testCase.effort ?? "none"}`,
+    `codex-work-${testCase.model}-${testCase.clientEffort ?? "none"}`,
   )
   await mkdir(codexHome, { recursive: true })
   await mkdir(workdir, { recursive: true })
 
   const effortLine =
-    testCase.effort ? `model_reasoning_effort = "${testCase.effort}"\n` : ""
+    testCase.clientEffort ? `model_reasoning_effort = "${testCase.clientEffort}"\n` : ""
   const reasoningSupportLine =
-    testCase.effort && CODEX_REASONING_SUPPORT ?
+    testCase.clientEffort && CODEX_REASONING_SUPPORT ?
       "model_supports_reasoning_summaries = true\n"
     : ""
   await writeFile(
@@ -701,15 +726,15 @@ const runClaudeCase = async (
   testCase: MatrixCase,
   rootDir: string,
 ): Promise<ProcessResult & { output: string }> => {
-  await writeProjectClaudeSettings(testCase.effort)
+  await writeProjectClaudeSettings(testCase.clientEffort)
 
   const claudeHome = path.join(
     rootDir,
-    `claude-home-${testCase.model}-${testCase.effort ?? "none"}`,
+    `claude-home-${testCase.model}-${testCase.clientEffort ?? "none"}`,
   )
   const workdir = path.join(
     rootDir,
-    `claude-work-${testCase.model}-${testCase.effort ?? "none"}`,
+    `claude-work-${testCase.model}-${testCase.clientEffort ?? "none"}`,
   )
   await mkdir(claudeHome, { recursive: true })
   await mkdir(workdir, { recursive: true })
@@ -952,6 +977,7 @@ const evaluateCase = (
 const printResult = (result: CaseResult): void => {
   const { case: testCase, clientTrace, trace } = result
   const expectedEffort = testCase.effort ?? "none"
+  const configuredEffort = testCase.clientEffort ?? "none"
   const actualEffort =
     trace?.request.output_config?.effort
     ?? trace?.request.reasoning?.effort
@@ -961,7 +987,7 @@ const printResult = (result: CaseResult): void => {
     clientTrace?.response.reasoning_fields?.map((field) => field.path).join(",") || "-"
   const status = result.ok ? "PASS" : "FAIL"
   console.log(
-    `${status} ${testCase.client.padEnd(6)} ${testCase.model.padEnd(28)} effort=${String(expectedEffort).padEnd(6)} inbound=${String(clientTrace?.path ?? "-").padEnd(13)} upstream=${String(trace?.path ?? "-").padEnd(17)} req_model=${String(trace?.request.model ?? "-").padEnd(32)} req_effort=${String(actualEffort).padEnd(6)} in_effort=${String(clientTrace?.request.reasoning_effort ?? clientTrace?.request.thinking?.budget_tokens ?? clientTrace?.request.reasoning?.effort ?? "none").padEnd(7)} resp_model=${String(trace?.response.model ?? "-").padEnd(28)} client_model=${String(clientTrace?.response.model ?? "-").padEnd(28)} resp_reason=${String(trace?.response.reasoning_fields?.map((field) => field.path).join(",") || "-").padEnd(12)} client_reason=${clientReasoning} ${String(result.ms).padStart(6)}ms`,
+    `${status} ${testCase.client.padEnd(6)} ${testCase.model.padEnd(28)} effort=${String(expectedEffort).padEnd(6)} config_effort=${String(configuredEffort).padEnd(6)} inbound=${String(clientTrace?.path ?? "-").padEnd(13)} upstream=${String(trace?.path ?? "-").padEnd(17)} req_model=${String(trace?.request.model ?? "-").padEnd(32)} req_effort=${String(actualEffort).padEnd(6)} in_effort=${String(clientTrace?.request.reasoning_effort ?? clientTrace?.request.thinking?.budget_tokens ?? clientTrace?.request.reasoning?.effort ?? "none").padEnd(7)} resp_model=${String(trace?.response.model ?? "-").padEnd(28)} client_model=${String(clientTrace?.response.model ?? "-").padEnd(28)} resp_reason=${String(trace?.response.reasoning_fields?.map((field) => field.path).join(",") || "-").padEnd(12)} client_reason=${clientReasoning} ${String(result.ms).padStart(6)}ms`,
   )
   if (!result.ok) {
     console.log(`     checks=${JSON.stringify(result.checks)} error=${result.error ?? ""}`)

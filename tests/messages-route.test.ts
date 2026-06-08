@@ -680,7 +680,7 @@ describe("/v1/messages route", () => {
         JSON.stringify({
           id: "chatcmpl-dotted-strict",
           created: 1700000000,
-          model: "gpt-5.2",
+          model: "gpt-5.4",
           choices: [
             {
               index: 0,
@@ -711,7 +711,7 @@ describe("/v1/messages route", () => {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        model: "gpt-5.2",
+        model: "gpt-5.4",
         max_tokens: 1024,
         messages: [{ role: "user", content: "use strict tool" }],
         tools: [
@@ -764,7 +764,7 @@ describe("/v1/messages route", () => {
         JSON.stringify({
           id: "chatcmpl-collision",
           created: 1700000000,
-          model: "gpt-5.2",
+          model: "gpt-5.4",
           choices: [
             {
               index: 0,
@@ -789,7 +789,7 @@ describe("/v1/messages route", () => {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        model: "gpt-5.2",
+        model: "gpt-5.4",
         max_tokens: 1024,
         messages: [{ role: "user", content: "use tools" }],
         tools: [
@@ -933,8 +933,8 @@ describe("/v1/messages route", () => {
       ["claude-opus-4.7", "low", "claude-opus-4.7", "low"],
       ["claude-opus-4.7", "high", "claude-opus-4.7", "high"],
       ["claude-opus-4.7", "xhigh", "claude-opus-4.7", "xhigh"],
-      ["claude-opus-4.7", "max", "claude-opus-4.7", "xhigh"],
-      ["claude-opus-4.7-1m", "max", opus47OneMillionModel, "xhigh"],
+      ["claude-opus-4.7", "max", "claude-opus-4.7", "max"],
+      ["claude-opus-4.7-1m", "max", opus47OneMillionModel, "max"],
     ] as const) {
       const captured: Array<CapturedRequest> = []
       const upstream = new Response(
@@ -989,7 +989,7 @@ describe("/v1/messages route", () => {
       ["medium", "claude-opus-4.7", "medium"],
       ["high", "claude-opus-4.7", "high"],
       ["xhigh", "claude-opus-4.7", "xhigh"],
-      ["max", "claude-opus-4.7", "xhigh"],
+      ["max", "claude-opus-4.7", "max"],
     ] as const) {
       const tempHome = await mkdtemp(path.join(os.tmpdir(), "claude-settings-opus47-"))
       process.env.HOME = tempHome
@@ -1062,7 +1062,7 @@ describe("/v1/messages route", () => {
       ["medium", "medium"],
       ["high", "high"],
       ["xhigh", "xhigh"],
-      ["max", "xhigh"],
+      ["max", "max"],
     ] as const) {
       const tempHome = await mkdtemp(path.join(os.tmpdir(), "claude-settings-opus47-1m-"))
       process.env.HOME = tempHome
@@ -1354,6 +1354,48 @@ describe("/v1/messages route", () => {
     expect(captured.map((request) => (request.body as { model: string }).model)).toEqual([
       "claude-opus-4.6-1m",
       "claude-opus-4.6-1m",
+    ])
+  })
+
+  test("maps Claude opus 4.8 1m display aliases to the base upstream model", async () => {
+    const captured: Array<CapturedRequest> = []
+    const upstream = new Response(
+      JSON.stringify({
+        id: "chatcmpl-48-display",
+        created: 1700000000,
+        model: "claude-opus-4.8",
+        choices: [
+          {
+            index: 0,
+            message: { role: "assistant", content: "OK" },
+            finish_reason: "stop",
+          },
+        ],
+        usage: { prompt_tokens: 9, completion_tokens: 2, total_tokens: 11 },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    )
+
+    const { app, restore: r } = buildApp(captured, upstream)
+    restore = r
+
+    for (const model of ["claude-opus-4.8-[1m]", "claude-opus-4.8-"]) {
+      const res = await app.request("/v1/messages", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          model,
+          max_tokens: 1024,
+          messages: [{ role: "user", content: "Reply with OK" }],
+        }),
+      })
+
+      expect(res.status).toBe(200)
+    }
+
+    expect(captured.map((request) => (request.body as { model: string }).model)).toEqual([
+      "claude-opus-4.8",
+      "claude-opus-4.8",
     ])
   })
 
@@ -2257,7 +2299,7 @@ describe("/v1/messages route", () => {
   })
 
   test("routes Anthropic native web search tools through the configured backend model", async () => {
-    runtimeState.modelOverride = "gpt-5.2"
+    runtimeState.modelOverride = "gpt-5.4"
     await writeFile(
       path.join(isolatedHome!, ".claude", "settings.json"),
       JSON.stringify({ env: { COPILOT_WEB_SEARCH_BACKEND: "gpt-5.5" } }),
@@ -2268,8 +2310,8 @@ describe("/v1/messages route", () => {
       if (request.url === "https://upstream.test/chat/completions") {
         chatCalls += 1
         return chatCalls === 1 ?
-            chatWebSearchToolCallResponse("test", "web_search", "gpt-5.2")
-          : chatTextResponse("Speedtest and Fast.com are relevant options.", "gpt-5.2")
+            chatWebSearchToolCallResponse("test", "web_search", "gpt-5.4")
+          : chatTextResponse("Speedtest and Fast.com are relevant options.", "gpt-5.4")
       }
 
       return copilotWebSearchResponse(
@@ -2311,7 +2353,7 @@ describe("/v1/messages route", () => {
       model?: string
       tools?: Array<{ function?: { name?: string }; type: string }>
     }
-    expect(upstreamBody.model).toBe("gpt-5.2")
+    expect(upstreamBody.model).toBe("gpt-5.4")
     expect(upstreamBody.tools?.[0]?.function?.name).toBe("web_search")
 
     const searchBody = captured[1].body as {
@@ -2560,10 +2602,10 @@ describe("/v1/messages route", () => {
   test("passes through Claude WebSearch when backend is not configured", async () => {
     await writeFile(
       path.join(isolatedHome!, ".claude", "settings.json"),
-      JSON.stringify({ model: "gpt-5.2" }),
+      JSON.stringify({ model: "gpt-5.4" }),
     )
     const captured: Array<CapturedRequest> = []
-    const upstream = chatWebSearchToolCallResponse("docs", "web_search", "gpt-5.2")
+    const upstream = chatWebSearchToolCallResponse("docs", "web_search", "gpt-5.4")
     const { app, restore: r } = buildApp(captured, upstream)
     restore = r
 

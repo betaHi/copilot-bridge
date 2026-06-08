@@ -298,7 +298,7 @@ model_reasoning_effort = "high"
   })
 
   test("chat-completions routes responses-only GPT models directly to /responses", async () => {
-    const models = ["gpt-5.5", "gpt-5.2-codex"]
+    const models = ["gpt-5.5", "gpt-5.3-codex"]
 
     for (const model of models) {
       const captured: Array<CapturedRequest> = []
@@ -419,7 +419,7 @@ model_reasoning_effort = "high"
       ["medium", "claude-opus-4.7", "medium"],
       ["high", "claude-opus-4.7", "high"],
       ["xhigh", "claude-opus-4.7", "xhigh"],
-      ["max", "claude-opus-4.7", "xhigh"],
+      ["max", "claude-opus-4.7", "max"],
     ] as const) {
       const captured: Array<CapturedRequest> = []
       const upstream = new Response(
@@ -505,7 +505,7 @@ model_reasoning_effort = "high"
       body: JSON.stringify({
         model: "claude-opus-4.8",
         input: "hi",
-        reasoning: { effort: "high", summary: "auto" },
+        reasoning: { effort: "max", summary: "auto" },
       }),
     })
 
@@ -516,7 +516,7 @@ model_reasoning_effort = "high"
     )
     expect(
       (captured[0].body as { reasoning_effort?: string }).reasoning_effort,
-    ).toBe("medium")
+    ).toBe("max")
     expect(
       (captured[0].body as { output_config?: { effort?: string } }).output_config,
     ).toBeUndefined()

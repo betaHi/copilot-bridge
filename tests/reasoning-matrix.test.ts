@@ -307,7 +307,7 @@ describe("reasoning matrix: /v1/chat/completions", () => {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        model: "gpt-5.2",
+        model: "gpt-5-mini",
         max_tokens: 32,
         messages: [{ role: "user", content: "Reply with OK" }],
         reasoning_effort: "high",

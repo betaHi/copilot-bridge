@@ -12,6 +12,11 @@ describe("model-capabilities: alias + capability lookup", () => {
     expect(resolveModelId("gemini-3-flash")).toBe("gemini-3-flash-preview")
   })
 
+  test("claude-opus-4.8 1M display aliases resolve to the base upstream id", () => {
+    expect(resolveModelId("claude-opus-4.8-1m")).toBe("claude-opus-4.8")
+    expect(resolveModelId("claude-opus-4.8-[1m]")).toBe("claude-opus-4.8")
+  })
+
   test("unknown model is returned unchanged", () => {
     expect(resolveModelId("totally-unknown")).toBe("totally-unknown")
   })
@@ -29,7 +34,7 @@ describe("model-capabilities: alias + capability lookup", () => {
       getModelCapability("gpt-5.4")?.requiresResponsesForChatReasoningTools,
     ).toBe(true)
 
-    for (const id of ["gpt-5.5", "gpt-5.3-codex", "gpt-5.2", "gpt-5-mini"]) {
+    for (const id of ["gpt-5.5", "gpt-5.3-codex", "gpt-5-mini"]) {
       expect(
         getModelCapability(id)?.requiresResponsesForChatReasoningTools,
       ).toBeUndefined()
@@ -99,7 +104,7 @@ describe("model-capabilities: clampReasoningEffort", () => {
     })
   })
 
-  test("claude-opus-4.7 supports low through xhigh efforts", () => {
+  test("claude-opus-4.7 supports low through max efforts", () => {
     expect(clampReasoningEffort("claude-opus-4.7", "low")).toEqual({
       effort: "low",
       changed: false,
@@ -113,19 +118,48 @@ describe("model-capabilities: clampReasoningEffort", () => {
       changed: false,
     })
     expect(clampReasoningEffort("claude-opus-4.7", "max")).toEqual({
-      effort: "xhigh",
-      changed: true,
-      reason: "unsupported-effort",
+      effort: "max",
+      changed: false,
     })
   })
 
-  test("claude-opus-4.8 clamps to its advertised medium effort", () => {
+  test("claude 4.6 family supports max but not xhigh", () => {
+    for (const model of [
+      "claude-opus-4.6",
+      "claude-opus-4.6-1m",
+      "claude-sonnet-4.6",
+    ]) {
+      expect(clampReasoningEffort(model, "max")).toEqual({
+        effort: "max",
+        changed: false,
+      })
+      expect(clampReasoningEffort(model, "xhigh")).toEqual({
+        effort: "max",
+        changed: true,
+        reason: "unsupported-effort",
+      })
+    }
+  })
+
+  test("claude-opus-4.8 supports its live upstream effort range", () => {
     expect(clampReasoningEffort("claude-opus-4.8", undefined)).toEqual({
       effort: "medium",
       changed: false,
     })
     expect(clampReasoningEffort("claude-opus-4.8", "high")).toEqual({
-      effort: "medium",
+      effort: "high",
+      changed: false,
+    })
+    expect(clampReasoningEffort("claude-opus-4.8", "xhigh")).toEqual({
+      effort: "xhigh",
+      changed: false,
+    })
+    expect(clampReasoningEffort("claude-opus-4.8", "max")).toEqual({
+      effort: "max",
+      changed: false,
+    })
+    expect(clampReasoningEffort("claude-opus-4.8", "none")).toEqual({
+      effort: "low",
       changed: true,
       reason: "unsupported-effort",
     })
@@ -156,9 +190,8 @@ describe("model-capabilities: clampReasoningEffort", () => {
 
   test("claude-opus-4.7 effort variants clamp to advertised upstream efforts", () => {
     expect(clampReasoningEffort("claude-opus-4.7-1m", "max")).toEqual({
-      effort: "xhigh",
-      changed: true,
-      reason: "unsupported-effort",
+      effort: "max",
+      changed: false,
     })
   })
 })

@@ -75,8 +75,6 @@ describe("start --auto model selection", () => {
   test("non-auto mode fetches models from GET /models (contrast with auto)", async () => {
     const upstreamModels = [
       { id: "gpt-5-mini" },
-      { id: "gpt-5.2" },
-      { id: "gpt-5.2-codex" },
       { id: "gpt-5.3-codex" },
       { id: "gpt-5.4" },
       { id: "gpt-5.4-mini" },
@@ -122,8 +120,6 @@ describe("start --auto model selection", () => {
     // Non-auto response contains ALL upstream models (not just auto-mode subset)
     expect(models).toContain("claude-opus-4.7")
     expect(models).toContain("gemini-3.1-pro-preview")
-    expect(models).toContain("gpt-5.2")
-    expect(models).toContain("gpt-5.2-codex")
     expect(models).toContain("gpt-5.5")
     expect(models).toContain("gemini-2.5-pro")
     expect(models).toContain("gemini-3-flash-preview")

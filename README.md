@@ -137,13 +137,13 @@ Minimal recommended config is:
 ```
 
 For Claude Code 1M context, use the `-[1m]` display form in
-`ANTHROPIC_MODEL`. Claude Code shows a 1M context window for this form, while
-the bridge maps it to the real Copilot `-1m` model upstream:
+`ANTHROPIC_MODEL`. Claude Code shows a 1M context window for this form, and the
+bridge maps it to the matching upstream Copilot model:
 
 ```json
 {
   "env": {
-    "ANTHROPIC_MODEL": "claude-opus-4.7-[1m]"
+    "ANTHROPIC_MODEL": "claude-opus-4.8-[1m]"
   }
 }
 ```
@@ -196,7 +196,7 @@ COPILOT_WEB_SEARCH_BACKEND = "gpt-5.5"
 
 | Value | Search path | Requirement |
 | ----- | ----------- | ----------- |
-| Copilot model id, for example `gpt-5.5` | Copilot HTTP `/responses` + `web_search_preview` | Recommended: `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.3-codex`, `gpt-5.2`, `gpt-5.2-codex`. |
+| Copilot model id, for example `gpt-5.5` | Copilot HTTP `/responses` + `web_search_preview` | Recommended: `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.3-codex`. |
 | `searxng`, use `"COPILOT_WEB_SEARCH_BACKEND": "searxng"` | Local SearXNG at `http://localhost:8080` | Start SearXNG yourself. Setup guide: https://github.com/betaHi/openclaw-searxng-search. |
 | `copilot-cli` or `copilot`, use `"COPILOT_WEB_SEARCH_BACKEND": "copilot-cli"` | GitHub Copilot CLI `web_search` tool, using the current request model | Install and sign in to GitHub Copilot CLI yourself. |
 
@@ -273,28 +273,27 @@ accepts upstream.
 | `gpt-5.4`       | `low`, `medium`, `high`, `xhigh`         |
 | `gpt-5.4-mini`  | `none`, `low`, `medium`                  |
 | `gpt-5.3-codex` | `low`, `medium`, `high`, `xhigh`         |
-| `gpt-5.2`       | `low`, `medium`, `high`, `xhigh`         |
-| `gpt-5.2-codex` | `low`, `medium`, `high`, `xhigh`         |
 | `gpt-5-mini`    | `low`, `medium`, `high`                  |
 
 ### Claude family — translated to chat completions
 
 | Model                            | Reasoning efforts                       | Notes                                  |
 | -------------------------------- | --------------------------------------- | -------------------------------------- |
-| `claude-opus-4.8`                | `medium`                                |                                        |
-| `claude-opus-4.7`                | `low`, `medium`, `high`, `xhigh`        | Effort sent as `output_config.effort`. |
-| `claude-opus-4.7-1m`             | `low`, `medium`, `high`, `xhigh`        | 1M-token context window, prefer use `claude-opus-4.7-[1m]` in config. |
-| `claude-opus-4.6`                | `low`, `medium`, `high`                 |                                        |
-| `claude-opus-4.6-1m`             | `low`, `medium`, `high`                 | 1M-token context window, prefer use `claude-opus-4.6-[1m]` in config              |
-| `claude-sonnet-4.6`              | `low`, `medium`, `high`                 |                                        |
+| `claude-opus-4.8`                | `low`, `medium`, `high`, `xhigh`, `max` |                                        |
+| `claude-opus-4.8-1m`             | `low`, `medium`, `high`, `xhigh`, `max` | 1M-token context window, prefer use `claude-opus-4.8-[1m]` in config. |
+| `claude-opus-4.7`                | `low`, `medium`, `high`, `xhigh`, `max` | Effort sent as `output_config.effort`. |
+| `claude-opus-4.7-1m`             | `low`, `medium`, `high`, `xhigh`, `max` | 1M-token context window, prefer use `claude-opus-4.7-[1m]` in config. |
+| `claude-opus-4.6`                | `low`, `medium`, `high`, `max`          |                                        |
+| `claude-opus-4.6-1m`             | `low`, `medium`, `high`, `max`          | 1M-token context window, prefer use `claude-opus-4.6-[1m]` in config              |
+| `claude-sonnet-4.6`              | `low`, `medium`, `high`, `max`          |                                        |
 | `claude-opus-4.5`                | —                                       | Reasoning not accepted upstream.       |
 | `claude-sonnet-4.5`              | —                                       | Reasoning not accepted upstream.       |
 | `claude-haiku-4.5`               | —                                       | Reasoning not accepted upstream.       |
 
-For Claude Code settings, prefer `claude-opus-4.7-[1m]` or
-`claude-opus-4.6-[1m]` when you want the CLI `/context` UI and the upstream
-model to both use 1M context. Direct API clients can use
-`claude-opus-4.7-1m` or `claude-opus-4.6-1m`.
+For Claude Code settings, prefer `claude-opus-4.8-[1m]`,
+`claude-opus-4.7-[1m]`, or `claude-opus-4.6-[1m]` when you want the CLI
+`/context` UI and the upstream model to both use 1M context. Direct API clients
+can use the corresponding model ids listed in the table.
 
 ### Gemini family — translated to chat completions
 
@@ -316,6 +315,9 @@ reasoning effort, the bridge leaves it omitted rather than inferring a default.
 Claude-side reasoning can be set globally via `MODEL_REASONING_EFFORT` (env, or
 `env` in `~/.claude/settings.json`); invalid Claude-side values are ignored,
 and per-request `reasoning_effort` takes precedence.
+Codex CLI does not accept `max` in `model_reasoning_effort`; when Codex config
+contains `max`, the bridge writes `xhigh` and clamps it to the closest upstream
+effort accepted by the selected model.
 
 ## Development
 

@@ -74,24 +74,6 @@ export const MODEL_CAPABILITIES: ReadonlyArray<ModelCapability> = [
     },
   },
   {
-    id: "gpt-5.2",
-    reasoning: {
-      supported: ["low", "medium", "high", "xhigh"],
-      default: "medium",
-    },
-  },
-  {
-    id: "gpt-5.2-codex",
-    reasoning: {
-      supported: ["low", "medium", "high", "xhigh"],
-      default: "medium",
-    },
-    textVerbosity: {
-      supported: ["medium"],
-      default: "medium",
-    },
-  },
-  {
     id: "gpt-5-mini",
     reasoning: {
       supported: ["low", "medium", "high"],
@@ -104,13 +86,13 @@ export const MODEL_CAPABILITIES: ReadonlyArray<ModelCapability> = [
   ...[
     {
       id: "claude-opus-4.7",
-      supported: ["low", "medium", "high", "xhigh"],
+      supported: ["low", "medium", "high", "xhigh", "max"],
       defaultEffort: "medium",
     },
     {
       id: "claude-opus-4.7-1m-internal",
       aliases: ["claude-opus-4.7-1m"],
-      supported: ["low", "medium", "high", "xhigh"],
+      supported: ["low", "medium", "high", "xhigh", "max"],
       defaultEffort: "medium",
     },
   ].map(
@@ -129,7 +111,7 @@ export const MODEL_CAPABILITIES: ReadonlyArray<ModelCapability> = [
     id: "claude-opus-4.6",
     fallback: "chat-completions",
     reasoning: {
-      supported: ["low", "medium", "high"],
+      supported: ["low", "medium", "high", "max"],
       default: "medium",
     },
   },
@@ -137,15 +119,16 @@ export const MODEL_CAPABILITIES: ReadonlyArray<ModelCapability> = [
     id: "claude-opus-4.6-1m",
     fallback: "chat-completions",
     reasoning: {
-      supported: ["low", "medium", "high"],
+      supported: ["low", "medium", "high", "max"],
       default: "medium",
     },
   },
   {
     id: "claude-opus-4.8",
+    aliases: ["claude-opus-4.8-1m", "claude-opus-4.8-[1m]"],
     fallback: "chat-completions",
     reasoning: {
-      supported: ["medium"],
+      supported: ["low", "medium", "high", "xhigh", "max"],
       default: "medium",
     },
   },
@@ -157,7 +140,7 @@ export const MODEL_CAPABILITIES: ReadonlyArray<ModelCapability> = [
     id: "claude-sonnet-4.6",
     fallback: "chat-completions",
     reasoning: {
-      supported: ["low", "medium", "high"],
+      supported: ["low", "medium", "high", "max"],
       default: "medium",
     },
   },

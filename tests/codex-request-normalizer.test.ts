@@ -46,7 +46,7 @@ describe("codex /v1/responses request normalizer", () => {
     expect(xhigh.model).toBe("claude-opus-4.7")
     expect(xhigh.reasoning?.effort).toBe("xhigh")
     expect(max.model).toBe("claude-opus-4.7")
-    expect(max.reasoning?.effort).toBe("xhigh")
+    expect(max.reasoning?.effort).toBe("max")
   })
 
   test("does not rewrite retired Claude opus 4.7 fixed-effort ids", () => {
@@ -71,15 +71,25 @@ describe("codex /v1/responses request normalizer", () => {
     expect(out.reasoning).toBeUndefined()
   })
 
-  test("clamps reasoning for Claude opus 4.8 while preserving chat fallback model", () => {
+  test("preserves supported reasoning for Claude opus 4.8 fallback model", () => {
     const out = normalizeCodexResponsesRequest({
       model: "claude-opus-4.8",
-      reasoning: { effort: "high", summary: "auto" },
+      reasoning: { effort: "max", summary: "auto" },
     } as never) as { model: string; reasoning?: { effort?: string; summary?: string } }
 
     expect(out.model).toBe("claude-opus-4.8")
-    expect(out.reasoning?.effort).toBe("medium")
+    expect(out.reasoning?.effort).toBe("max")
     expect(out.reasoning?.summary).toBe("auto")
+  })
+
+  test("maps Claude opus 4.8 1M display alias to the base fallback model", () => {
+    const out = normalizeCodexResponsesRequest({
+      model: "claude-opus-4.8-1m",
+      reasoning: { effort: "xhigh" },
+    } as never) as { model: string; reasoning?: { effort?: string } }
+
+    expect(out.model).toBe("claude-opus-4.8")
+    expect(out.reasoning?.effort).toBe("xhigh")
   })
 
   test("does not infer reasoning effort when omitted", () => {
@@ -106,7 +116,7 @@ describe("codex /v1/responses request normalizer", () => {
   test("preserves reasoning metadata while injecting configured effort", () => {
     const out = normalizeCodexResponsesRequest(
       {
-        model: "gpt-5.2",
+        model: "gpt-5.4",
         reasoning: { summary: "auto" },
       } as never,
       "medium",
@@ -175,36 +185,6 @@ describe("codex /v1/responses request normalizer", () => {
 
     expect(out.reasoning?.effort).toBe("low")
     expect(out.reasoning?.summary).toBe("auto")
-  })
-
-  test("clamps unsupported Codex text verbosity and preserves text fields", () => {
-    const out = normalizeCodexResponsesRequest({
-      model: "gpt-5.2-codex",
-      reasoning: { effort: "medium", summary: "auto" },
-      text: { verbosity: "low", format: { type: "text" } },
-    } as never) as {
-      reasoning?: { effort?: string; summary?: string }
-      text?: { verbosity?: string; format?: { type?: string } }
-    }
-
-    expect(out.reasoning?.effort).toBe("medium")
-    expect(out.reasoning?.summary).toBe("auto")
-    expect(out.text?.verbosity).toBe("medium")
-    expect(out.text?.format?.type).toBe("text")
-  })
-
-  test("normalizes text verbosity even when reasoning effort is omitted", () => {
-    const out = normalizeCodexResponsesRequest({
-      model: "gpt-5.2-codex",
-      text: { verbosity: "low", format: { type: "text" } },
-    } as never) as {
-      reasoning?: { effort?: string }
-      text?: { verbosity?: string; format?: { type?: string } }
-    }
-
-    expect(out.reasoning).toBeUndefined()
-    expect(out.text?.verbosity).toBe("medium")
-    expect(out.text?.format?.type).toBe("text")
   })
 
   test("leaves unknown model untouched (no capability match)", () => {

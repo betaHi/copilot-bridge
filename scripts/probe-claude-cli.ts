@@ -15,8 +15,6 @@ const CASES: Case[] = [
   { model: "gpt-5.4", efforts: ["low", "medium", "high", "xhigh"] },
   { model: "gpt-5.4-mini", efforts: ["low", "medium"] },
   { model: "gpt-5.3-codex", efforts: ["low", "medium", "high", "xhigh"] },
-  { model: "gpt-5.2", efforts: ["low", "medium", "high", "xhigh"] },
-  { model: "gpt-5.2-codex", efforts: ["low", "medium", "high", "xhigh"] },
   { model: "gpt-5-mini", efforts: ["low", "medium", "high"] },
   // Claude
   { model: "claude-opus-4.7", efforts: ["low", "medium", "high", "xhigh"] },

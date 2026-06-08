@@ -31,6 +31,18 @@ describe("models-resolver: Claude snapshot aliases", () => {
     )
   })
 
+  test("maps Claude opus 4.8 1M display aliases to the base upstream id", () => {
+    expect(resolveUpstreamModelId("claude-opus-4.8-1m", [])).toBe(
+      "claude-opus-4.8",
+    )
+    expect(resolveUpstreamModelId("claude-opus-4.8-[1m]", [])).toBe(
+      "claude-opus-4.8",
+    )
+    expect(resolveUpstreamModelId("claude-opus-4-8-1m", [])).toBe(
+      "claude-opus-4.8",
+    )
+  })
+
   test("normalizes Claude snapshot aliases even when the date suffix is omitted", () => {
     expect(resolveUpstreamModelId("claude-sonnet-4-6", [])).toBe(
       "claude-sonnet-4.6",
@@ -139,6 +151,30 @@ describe("models-resolver: Claude snapshot aliases", () => {
     expect(resolveUpstreamModelId("claude-opus-4-6-20260401", models)).toBe(
       "claude-opus-4.6",
     )
+  })
+
+  test("does not upcast an exact GPT minor version to a different available minor", () => {
+    const models: Array<Model> = [
+      {
+        id: "gpt-5.4",
+        name: "GPT-5.4",
+        object: "model",
+        vendor: "OpenAI",
+        version: "1",
+        preview: false,
+        model_picker_enabled: true,
+        capabilities: {
+          family: "gpt-5.4",
+          limits: {},
+          object: "model_capabilities",
+          supports: { tool_calls: true },
+          tokenizer: "o200k_base",
+          type: "chat",
+        },
+      },
+    ]
+
+    expect(resolveUpstreamModelId("gpt-5.2", models)).toBe("gpt-5.2")
   })
 
   test("uses an advertised snapshot id when only snapshot ids are available upstream", () => {

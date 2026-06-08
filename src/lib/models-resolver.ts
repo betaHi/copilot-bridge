@@ -5,19 +5,36 @@ import { runtimeState } from "./state"
 const normalizeModelId = (modelId: string): string =>
   modelId.trim().toLowerCase().replaceAll(/[\s._-]+/g, "")
 
-const stripSnapshotSuffix = (modelId: string): string => {
-  const id = modelId.trim().toLowerCase().replace(/\[1m\]$/, "")
-
-  if (id === "claude-opus-4.7-1m") {
+const mapClaudeOneMillionModelId = (modelId: string): string => {
+  if (modelId === "claude-opus-4.7-1m") {
     return "claude-opus-4.7-1m-internal"
   }
+
+  if (modelId === "claude-opus-4.8-1m") {
+    return "claude-opus-4.8"
+  }
+
+  return modelId
+}
+
+const stripSnapshotSuffix = (modelId: string): string => {
+  const id = modelId
+    .trim()
+    .toLowerCase()
+    .replace(/-\[1m\]$/, "-1m")
+    .replace(/\[1m\]$/, "-1m")
+
+  const mappedId = mapClaudeOneMillionModelId(id)
+  if (mappedId !== id) return mappedId
 
   const claudeSnapshotMatch = id.match(
     /^claude-(opus|sonnet|haiku)-(\d)-(\d)((?:-[a-z0-9]+)*?)(?:-\d{8})?$/,
   )
   if (claudeSnapshotMatch) {
     const [, family, major, minor, suffix = ""] = claudeSnapshotMatch
-    return `claude-${family}-${major}.${minor}${suffix}`
+    return mapClaudeOneMillionModelId(
+      `claude-${family}-${major}.${minor}${suffix}`,
+    )
   }
 
   return id
@@ -41,10 +58,12 @@ const getAliasCandidates = (modelId: string): Array<string> => {
   )
   if (familyMatch) {
     aliases.add(familyMatch[0])
-    aliases.add(familyMatch[0].replace(/\.\d+$/, ""))
+    if (!/^gpt-\d+\.\d+(?:-|$)/.test(canonicalModelId)) {
+      aliases.add(familyMatch[0].replace(/\.\d+$/, ""))
+    }
   }
 
-  if (/^gpt-5(?:[.-]\d+)?$/i.test(canonicalModelId)) {
+  if (/^gpt-5$/i.test(canonicalModelId)) {
     aliases.add("gpt-5")
   }
 
