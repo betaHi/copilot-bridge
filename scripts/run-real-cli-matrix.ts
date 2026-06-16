@@ -141,12 +141,16 @@ const expectedUpstreamEffort = (
 }
 
 const publicModelIds = (capability: ModelCapability): Array<string> => {
-  if (capability.id === "claude-opus-4.7-1m-internal") {
-    return ["claude-opus-4.7-1m"]
+  if (capability.id === "claude-opus-4.6") {
+    return ["claude-opus-4.6", "claude-opus-4.6-1m", "claude-opus-4.6-[1m]"]
+  }
+
+  if (capability.id === "claude-opus-4.7") {
+    return ["claude-opus-4.7", "claude-opus-4.7-1m", "claude-opus-4.7-[1m]"]
   }
 
   if (capability.id === "claude-opus-4.8") {
-    return ["claude-opus-4.8", "claude-opus-4.8-1m"]
+    return ["claude-opus-4.8", "claude-opus-4.8-1m", "claude-opus-4.8-[1m]"]
   }
 
   return [capability.id]

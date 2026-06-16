@@ -6,8 +6,16 @@ const normalizeModelId = (modelId: string): string =>
   modelId.trim().toLowerCase().replaceAll(/[\s._-]+/g, "")
 
 const mapClaudeOneMillionModelId = (modelId: string): string => {
+  if (modelId === "claude-opus-4.6-1m") {
+    return "claude-opus-4.6"
+  }
+
   if (modelId === "claude-opus-4.7-1m") {
-    return "claude-opus-4.7-1m-internal"
+    return "claude-opus-4.7"
+  }
+
+  if (modelId === "claude-opus-4.7-1m-internal") {
+    return "claude-opus-4.7"
   }
 
   if (modelId === "claude-opus-4.8-1m") {
@@ -15,6 +23,12 @@ const mapClaudeOneMillionModelId = (modelId: string): string => {
   }
 
   return modelId
+}
+
+const isClaudeOneMillionAlias = (modelId: string): boolean => {
+  const id = modelId.trim().toLowerCase()
+  return /^claude-opus-4[.-][678](?:-\d{8})?-?\[1m\]$/.test(id)
+    || /^claude-opus-4[.-][678]-1m(?:-internal)?(?:-\d{8})?$/.test(id)
 }
 
 const stripSnapshotSuffix = (modelId: string): string => {
@@ -144,7 +158,13 @@ export const resolveModel = (
     return undefined
   }
 
-  const exactMatch = models.find((model) => model.id === requestedModelId)
+  const requestedExactMatch = models.find((model) => model.id === requestedModelId)
+  if (requestedExactMatch && !isClaudeOneMillionAlias(requestedModelId)) {
+    return requestedExactMatch
+  }
+
+  const canonicalModelId = stripSnapshotSuffix(requestedModelId)
+  const exactMatch = models.find((model) => model.id === canonicalModelId)
   if (exactMatch) return exactMatch
 
   const aliasCandidates = getAliasCandidates(requestedModelId)

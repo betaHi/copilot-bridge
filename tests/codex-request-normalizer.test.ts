@@ -11,13 +11,13 @@ describe("codex /v1/responses request normalizer", () => {
     expect(out.model).toBe("gemini-3.1-pro-preview")
   })
 
-  test("rewrites public Claude opus 4.7 1M alias to upstream model id", () => {
+  test("rewrites public Claude opus 4.7 1M alias to current upstream model id", () => {
     const out = normalizeCodexResponsesRequest({
       model: "claude-opus-4.7-1m",
       reasoning: { effort: "high" },
     } as never) as { model: string; reasoning?: { effort?: string } }
 
-    expect(out.model).toBe("claude-opus-4.7-1m-internal")
+    expect(out.model).toBe("claude-opus-4.7")
     expect(out.reasoning?.effort).toBe("high")
   })
 

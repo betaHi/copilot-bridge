@@ -16,18 +16,18 @@ describe("models-resolver: Claude snapshot aliases", () => {
     )
   })
 
-  test("preserves 1m Claude snapshot aliases", () => {
+  test("maps 1m Claude snapshot aliases to the current base model id", () => {
     expect(resolveUpstreamModelId("claude-opus-4-6-1m-20260401", [])).toBe(
-      "claude-opus-4.6-1m",
+      "claude-opus-4.6",
     )
   })
 
-  test("maps Claude opus 4.7 1M aliases to dotted upstream ids", () => {
+  test("maps Claude opus 4.7 1M aliases to the base upstream id", () => {
     expect(resolveUpstreamModelId("claude-opus-4.7-1m", [])).toBe(
-      "claude-opus-4.7-1m-internal",
+      "claude-opus-4.7",
     )
     expect(resolveUpstreamModelId("claude-opus-4-7-1m-internal", [])).toBe(
-      "claude-opus-4.7-1m-internal",
+      "claude-opus-4.7",
     )
   })
 

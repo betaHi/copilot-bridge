@@ -12,7 +12,14 @@ describe("model-capabilities: alias + capability lookup", () => {
     expect(resolveModelId("gemini-3-flash")).toBe("gemini-3-flash-preview")
   })
 
-  test("claude-opus-4.8 1M display aliases resolve to the base upstream id", () => {
+  test("claude-opus 1M display aliases resolve to base upstream ids", () => {
+    expect(resolveModelId("claude-opus-4.6-1m")).toBe("claude-opus-4.6")
+    expect(resolveModelId("claude-opus-4.6-[1m]")).toBe("claude-opus-4.6")
+    expect(resolveModelId("claude-opus-4.7-1m")).toBe("claude-opus-4.7")
+    expect(resolveModelId("claude-opus-4.7-[1m]")).toBe("claude-opus-4.7")
+    expect(resolveModelId("claude-opus-4.7-1m-internal")).toBe(
+      "claude-opus-4.7",
+    )
     expect(resolveModelId("claude-opus-4.8-1m")).toBe("claude-opus-4.8")
     expect(resolveModelId("claude-opus-4.8-[1m]")).toBe("claude-opus-4.8")
   })
@@ -61,6 +68,7 @@ describe("model-capabilities: alias + capability lookup", () => {
       "claude-opus-4.7",
       "claude-opus-4.7-1m-internal",
       "claude-opus-4.7-1m",
+      "claude-opus-4.7-[1m]",
     ]) {
       expect(getModelCapability(id)?.reasoningField).toBe(
         "output_config.effort",

@@ -395,7 +395,7 @@ describe("reasoning matrix: /v1/chat/completions", () => {
       output_config?: { effort?: ReasoningEffort }
       reasoning_effort?: ReasoningEffort
     }
-    expect(body.model).toBe("claude-opus-4.7-1m-internal")
+    expect(body.model).toBe("claude-opus-4.7")
     expect(body.output_config?.effort).toBe("high")
     expect(body.reasoning_effort).toBeUndefined()
   })

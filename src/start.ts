@@ -41,8 +41,7 @@ interface CopilotModelsResponse {
   data?: Array<CopilotModel>
 }
 
-const getPublicModelId = (id: string): string =>
-  id === "claude-opus-4.7-1m-internal" ? "claude-opus-4.7-1m" : id
+const getPublicModelId = (id: string): string => id
 
 const unique = (ids: Array<string>): Array<string> => [...new Set(ids)]
 

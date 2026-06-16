@@ -14,15 +14,15 @@ beforeAll(() => {
     object: "list",
     data: [
       {
-        id: "claude-opus-4.6-1m",
-        name: "Claude Opus 4.6 1M",
+        id: "claude-opus-4.6",
+        name: "Claude Opus 4.6",
         object: "model",
         vendor: "Anthropic",
         version: "1",
         preview: false,
         model_picker_enabled: true,
         capabilities: {
-          family: "claude-opus-4.6-1m",
+          family: "claude-opus-4.6",
           object: "model_capabilities",
           tokenizer: "o200k_base",
           type: "chat",
@@ -48,15 +48,15 @@ beforeAll(() => {
         },
       },
       {
-        id: "claude-opus-4.7-1m-internal",
-        name: "Claude Opus 4.7 1M",
+        id: "claude-opus-4.8",
+        name: "Claude Opus 4.8",
         object: "model",
         vendor: "Anthropic",
         version: "1",
         preview: false,
         model_picker_enabled: true,
         capabilities: {
-          family: "claude-opus-4.7-1m-internal",
+          family: "claude-opus-4.8",
           object: "model_capabilities",
           tokenizer: "o200k_base",
           type: "chat",
@@ -106,14 +106,6 @@ interface CapturedRequest {
   url: string
   method: string
   body: unknown
-}
-
-const getFixtureModelId = (name: string): string => {
-  const model = runtimeState.models?.data.find((candidate) => candidate.name === name)
-  if (!model) {
-    throw new Error(`Missing test model fixture: ${name}`)
-  }
-  return model.id
 }
 
 const buildApp = (
@@ -312,7 +304,7 @@ describe("/v1/messages route", () => {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        model: "claude-opus-4.7",
+        model: "claude-opus-4.6",
         max_tokens: 64,
         messages: [{ role: "user", content: "hello" }],
       }),
@@ -927,7 +919,7 @@ describe("/v1/messages route", () => {
   })
 
   test("keeps Claude opus 4.7 high-effort requests on the base model", async () => {
-    const opus47OneMillionModel = getFixtureModelId("Claude Opus 4.7 1M")
+    const opus47OneMillionModel = "claude-opus-4.7"
 
     for (const [requestedModel, requestedEffort, expectedModel, expectedEffort] of [
       ["claude-opus-4.7", "low", "claude-opus-4.7", "low"],
@@ -1055,7 +1047,7 @@ describe("/v1/messages route", () => {
   })
 
   test("routes Claude settings opus 4.7 1M reasoning effort to the 1M upstream model", async () => {
-    const opus47OneMillionModel = getFixtureModelId("Claude Opus 4.7 1M")
+    const opus47OneMillionModel = "claude-opus-4.7"
 
     for (const [configuredEffort, expectedEffort] of [
       ["low", "low"],
@@ -1128,7 +1120,7 @@ describe("/v1/messages route", () => {
   })
 
   test("lets Claude settings override Claude CLI thinking-derived opus 4.7 effort", async () => {
-    const opus47OneMillionModel = getFixtureModelId("Claude Opus 4.7 1M")
+    const opus47OneMillionModel = "claude-opus-4.7"
     const tempHome = await mkdtemp(path.join(os.tmpdir(), "claude-settings-opus47-thinking-"))
     process.env.HOME = tempHome
     await mkdir(path.join(tempHome, ".claude"), { recursive: true })
@@ -1198,7 +1190,7 @@ describe("/v1/messages route", () => {
       JSON.stringify({
         id: "chatcmpl-2b",
         created: 1700000000,
-        model: "claude-opus-4.7",
+        model: "claude-opus-4.6",
         choices: [
           {
             index: 0,
@@ -1225,11 +1217,11 @@ describe("/v1/messages route", () => {
     })
 
     expect(res.status).toBe(200)
-    expect((captured[0].body as { model: string }).model).toBe("claude-opus-4.7")
+    expect((captured[0].body as { model: string }).model).toBe("claude-opus-4.6")
   })
 
   test("maps Claude client opus[1m] alias to the 1m upstream opus model", async () => {
-    const opus47OneMillionModel = getFixtureModelId("Claude Opus 4.7 1M")
+    const opus47OneMillionModel = "claude-opus-4.7"
     const captured: Array<CapturedRequest> = []
     const upstream = new Response(
       JSON.stringify({
@@ -1268,7 +1260,7 @@ describe("/v1/messages route", () => {
   })
 
   test("preserves bracket-form Claude opus 1m version aliases", async () => {
-    const opus47OneMillionModel = getFixtureModelId("Claude Opus 4.7 1M")
+    const opus47OneMillionModel = "claude-opus-4.7"
     const captured: Array<CapturedRequest> = []
     const upstream = new Response(
       JSON.stringify({
@@ -1321,7 +1313,7 @@ describe("/v1/messages route", () => {
       JSON.stringify({
         id: "chatcmpl-2c-display",
         created: 1700000000,
-        model: "claude-opus-4.6-1m",
+        model: "claude-opus-4.6",
         choices: [
           {
             index: 0,
@@ -1352,8 +1344,8 @@ describe("/v1/messages route", () => {
     }
 
     expect(captured.map((request) => (request.body as { model: string }).model)).toEqual([
-      "claude-opus-4.6-1m",
-      "claude-opus-4.6-1m",
+      "claude-opus-4.6",
+      "claude-opus-4.6",
     ])
   })
 
@@ -1497,7 +1489,7 @@ describe("/v1/messages route", () => {
         JSON.stringify({
           id: "chatcmpl-2f",
           created: 1700000000,
-          model: "claude-opus-4.6-1m",
+          model: "claude-opus-4.6",
           choices: [
             {
               index: 0,
@@ -1525,7 +1517,7 @@ describe("/v1/messages route", () => {
 
       expect(res.status).toBe(200)
       expect((captured[0].body as { model: string }).model).toBe(
-        "claude-opus-4.6-1m",
+        "claude-opus-4.6",
       )
     } finally {
       await rm(tempHome, { recursive: true, force: true })
@@ -3148,7 +3140,7 @@ describe("/v1/messages route", () => {
       JSON.stringify({
         id: "chatcmpl-thinking",
         created: 1700000000,
-        model: "claude-opus-4.7-1m-internal",
+        model: "claude-opus-4.7",
         choices: [
           {
             index: 0,
@@ -3231,9 +3223,9 @@ describe("/v1/messages route", () => {
   test("stream mode returns upstream reasoning as Anthropic thinking events", async () => {
     const captured: Array<CapturedRequest> = []
     const sseBody = [
-      'data: {"id":"cmpl-thinking","object":"chat.completion.chunk","created":1700000001,"model":"claude-opus-4.7-1m-internal","choices":[{"index":0,"delta":{"role":"assistant","reasoning_text":"I should answer briefly."},"finish_reason":null,"logprobs":null}],"usage":{"prompt_tokens":10,"completion_tokens":0,"total_tokens":10}}\n\n',
-      'data: {"id":"cmpl-thinking","object":"chat.completion.chunk","created":1700000001,"model":"claude-opus-4.7-1m-internal","choices":[{"index":0,"delta":{"content":"OK"},"finish_reason":null,"logprobs":null}],"usage":{"prompt_tokens":10,"completion_tokens":1,"total_tokens":11}}\n\n',
-      'data: {"id":"cmpl-thinking","object":"chat.completion.chunk","created":1700000001,"model":"claude-opus-4.7-1m-internal","choices":[{"index":0,"delta":{},"finish_reason":"stop","logprobs":null}],"usage":{"prompt_tokens":10,"completion_tokens":1,"total_tokens":11}}\n\n',
+      'data: {"id":"cmpl-thinking","object":"chat.completion.chunk","created":1700000001,"model":"claude-opus-4.7","choices":[{"index":0,"delta":{"role":"assistant","reasoning_text":"I should answer briefly."},"finish_reason":null,"logprobs":null}],"usage":{"prompt_tokens":10,"completion_tokens":0,"total_tokens":10}}\n\n',
+      'data: {"id":"cmpl-thinking","object":"chat.completion.chunk","created":1700000001,"model":"claude-opus-4.7","choices":[{"index":0,"delta":{"content":"OK"},"finish_reason":null,"logprobs":null}],"usage":{"prompt_tokens":10,"completion_tokens":1,"total_tokens":11}}\n\n',
+      'data: {"id":"cmpl-thinking","object":"chat.completion.chunk","created":1700000001,"model":"claude-opus-4.7","choices":[{"index":0,"delta":{},"finish_reason":"stop","logprobs":null}],"usage":{"prompt_tokens":10,"completion_tokens":1,"total_tokens":11}}\n\n',
       "data: [DONE]\n\n",
     ].join("")
     const upstream = new Response(sseBody, {

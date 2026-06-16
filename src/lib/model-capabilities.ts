@@ -86,12 +86,11 @@ export const MODEL_CAPABILITIES: ReadonlyArray<ModelCapability> = [
   ...[
     {
       id: "claude-opus-4.7",
-      supported: ["low", "medium", "high", "xhigh", "max"],
-      defaultEffort: "medium",
-    },
-    {
-      id: "claude-opus-4.7-1m-internal",
-      aliases: ["claude-opus-4.7-1m"],
+      aliases: [
+        "claude-opus-4.7-1m",
+        "claude-opus-4.7-[1m]",
+        "claude-opus-4.7-1m-internal",
+      ],
       supported: ["low", "medium", "high", "xhigh", "max"],
       defaultEffort: "medium",
     },
@@ -109,14 +108,7 @@ export const MODEL_CAPABILITIES: ReadonlyArray<ModelCapability> = [
   ),
   {
     id: "claude-opus-4.6",
-    fallback: "chat-completions",
-    reasoning: {
-      supported: ["low", "medium", "high", "max"],
-      default: "medium",
-    },
-  },
-  {
-    id: "claude-opus-4.6-1m",
+    aliases: ["claude-opus-4.6-1m", "claude-opus-4.6-[1m]"],
     fallback: "chat-completions",
     reasoning: {
       supported: ["low", "medium", "high", "max"],

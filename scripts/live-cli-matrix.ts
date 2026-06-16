@@ -6,6 +6,7 @@ import os from "node:os"
 import path from "node:path"
 
 import {
+  clampReasoningEffort,
   getModelCapability,
   MODEL_CAPABILITIES,
   resolveModelId,
@@ -55,13 +56,25 @@ interface ModelsResponse {
   data?: Array<{ id?: string }>
 }
 
-const publicModelId = (id: string): string =>
-  id === "claude-opus-4.7-1m-internal" ? "claude-opus-4.7-1m" : id
+const publicModelIds = (id: string): Array<string> => {
+  if (id === "claude-opus-4.6") {
+    return [id, "claude-opus-4.6-1m", "claude-opus-4.6-[1m]"]
+  }
+  if (id === "claude-opus-4.7") {
+    return [id, "claude-opus-4.7-1m", "claude-opus-4.7-[1m]"]
+  }
+  if (id === "claude-opus-4.8") {
+    return [id, "claude-opus-4.8-1m", "claude-opus-4.8-[1m]"]
+  }
+  return [id]
+}
 
-const matrixCases: Array<MatrixCase> = MODEL_CAPABILITIES.map((capability) => ({
-  model: publicModelId(capability.id),
-  efforts: capability.reasoning?.supported ? [...capability.reasoning.supported] : [null],
-})).filter((item) => FILTER_MODELS.size === 0 || FILTER_MODELS.has(item.model))
+const matrixCases: Array<MatrixCase> = MODEL_CAPABILITIES.flatMap((capability) =>
+  publicModelIds(capability.id).map((model) => ({
+    model,
+    efforts: capability.reasoning?.supported ? [...capability.reasoning.supported] : [null],
+  })),
+).filter((item) => FILTER_MODELS.size === 0 || FILTER_MODELS.has(item.model))
 
 const searchCases: Array<MatrixCase> = [
   { model: "claude-haiku-4.5", efforts: [null] },
@@ -79,6 +92,9 @@ const isCopilotDocsUrlOnly = (text: string): boolean =>
   /^\**https:\/\/docs\.github\.com\/[^\s*]*copilot[^\s*]*\**\.?$/i.test(text.trim())
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+const codexCliEffort = (effort: ReasoningEffort | null): ReasoningEffort | null =>
+  effort === "max" ? "xhigh" : effort
 
 const runProcess = async (
   command: string,
@@ -248,7 +264,7 @@ const fetchAvailableModels = async (port: number): Promise<Set<string>> => {
 
 const isModelAvailable = (models: Set<string>, model: string): boolean =>
   models.has(model)
-  || (model === "claude-opus-4.7-1m" && models.has("claude-opus-4.7-1m-internal"))
+  || models.has(resolveModelId(model))
 
 const startBridge = async (
   mode: BackendMode,
@@ -365,15 +381,16 @@ const validateEffortTrace = (
     return { ok: false, preview: "trace:missing-expected-effort" }
   }
 
-  const expectedSuffix = `=${effort}`
+  const expectedEffort = clampReasoningEffort(canonicalModel, effort)?.effort ?? effort
+  const expectedSuffix = `=${expectedEffort}`
   const matched = markers.find((marker) => marker.endsWith(expectedSuffix))
   return matched ?
       { ok: true, preview: `trace:${matched}` }
     : {
       ok: false,
       preview: markers.length ?
-        `trace:expected-${effort}-saw-${markers.join(",")}`
-      : `trace:expected-${effort}-saw-absent`,
+        `trace:expected-${expectedEffort}-saw-${markers.join(",")}`
+      : `trace:expected-${expectedEffort}-saw-absent`,
     }
 }
 
@@ -697,9 +714,10 @@ try {
           if (MAX_CASES !== undefined && executedCases >= MAX_CASES) break
 
           if (FILTER_CLIENTS.has("codex")) {
+            const codexEffort = codexCliEffort(effort)
             const traceCursor = await getTraceCursor(bridge.traceFile)
             const codex = applyEffortTraceValidation(
-              await runCodexCore(mode, port, item.model, effort),
+              await runCodexCore(mode, port, item.model, codexEffort),
               await getTraceEntriesSince(bridge.traceFile, traceCursor),
             )
             results.push(codex)
@@ -731,9 +749,10 @@ try {
             if (MAX_CASES !== undefined && executedCases >= MAX_CASES) break
 
             if (FILTER_CLIENTS.has("codex")) {
+              const codexEffort = codexCliEffort(effort)
               const traceCursor = await getTraceCursor(bridge.traceFile)
               const codex = applySearchTraceValidation(
-                await runCodexSearch(port, item.model, effort),
+                await runCodexSearch(port, item.model, codexEffort),
                 await getTraceEntriesSince(bridge.traceFile, traceCursor),
               )
               results.push(codex)

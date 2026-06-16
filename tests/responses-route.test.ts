@@ -458,7 +458,7 @@ model_reasoning_effort = "high"
     const upstream = new Response(
       JSON.stringify({
         id: "chatcmpl-opus47-1m",
-        model: "claude-opus-4.7-1m-internal",
+        model: "claude-opus-4.7",
         choices: [{ message: { role: "assistant", content: "Hi" } }],
       }),
       { status: 200, headers: { "content-type": "application/json" } },
@@ -478,7 +478,7 @@ model_reasoning_effort = "high"
 
     expect(res.status).toBe(200)
     expect((captured[0].body as { model: string }).model).toBe(
-      "claude-opus-4.7-1m-internal",
+      "claude-opus-4.7",
     )
     expect(
       (captured[0].body as { output_config?: { effort?: string } })
