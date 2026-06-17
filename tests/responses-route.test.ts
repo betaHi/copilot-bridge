@@ -345,6 +345,45 @@ model_reasoning_effort = "high"
     }
   })
 
+  test("chat-completions clamps responses-only GPT max_tokens to the Copilot Responses output minimum", async () => {
+    const captured: Array<CapturedRequest> = []
+    const upstream = new Response(
+      JSON.stringify({
+        id: "resp-chat-min-output",
+        created_at: 1700000000,
+        model: "gpt-5.4-mini",
+        output: [
+          {
+            type: "message",
+            role: "assistant",
+            content: [{ type: "output_text", text: "OK" }],
+          },
+        ],
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    )
+    const { app, restore: r } = buildApp(captured, upstream, "chat-completions")
+    restore = r
+
+    const res = await app.request("/v1/chat/completions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "gpt-5.4-mini",
+        messages: [{ role: "user", content: "ping" }],
+        max_tokens: 1,
+        stream: false,
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    expect(captured).toHaveLength(1)
+    expect(captured[0].url).toBe("https://upstream.test/responses")
+    expect(
+      (captured[0].body as { max_output_tokens?: number }).max_output_tokens,
+    ).toBe(16)
+  })
+
   test("alias-only model (gemini-3.1-pro) is rewritten and routed to chat/completions", async () => {
     const captured: Array<CapturedRequest> = []
     const upstream = new Response(

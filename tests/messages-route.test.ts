@@ -880,6 +880,45 @@ describe("/v1/messages route", () => {
     expect(json.content[0]).toEqual({ type: "text", text: "OK" })
   })
 
+  test("clamps Claude GPT requests to the Copilot Responses output minimum", async () => {
+    const captured: Array<CapturedRequest> = []
+    const upstream = new Response(
+      JSON.stringify({
+        id: "resp-gpt-min-output",
+        created_at: 1700000000,
+        model: "gpt-5.3-codex",
+        output: [
+          {
+            type: "message",
+            role: "assistant",
+            content: [{ type: "output_text", text: "PONG" }],
+          },
+        ],
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    )
+
+    const { app, restore: r } = buildApp(captured, upstream)
+    restore = r
+
+    const res = await app.request("/v1/messages", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "gpt-5.3-codex",
+        max_tokens: 1,
+        messages: [{ role: "user", content: "Reply with PONG" }],
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    expect(captured).toHaveLength(1)
+    expect(captured[0].url).toBe("https://upstream.test/responses")
+    expect(
+      (captured[0].body as { max_output_tokens?: number }).max_output_tokens,
+    ).toBe(16)
+  })
+
   test("normalizes Claude snapshot model ids before forwarding upstream", async () => {
     const captured: Array<CapturedRequest> = []
     const upstream = new Response(

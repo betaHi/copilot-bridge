@@ -197,9 +197,20 @@ interface CreateChunkOptions {
 
 const RESPONSES_ONLY_MODEL_PATTERN =
   /^(?:gpt-5\.5|gpt-5\.4-mini|gpt-5\.3-codex)(?:-|$)/i
+const COPILOT_RESPONSES_MIN_OUTPUT_TOKENS = 16
 
 export function shouldUseResponsesApiForModel(model: string): boolean {
   return RESPONSES_ONLY_MODEL_PATTERN.test(model)
+}
+
+function normalizeResponsesMaxOutputTokens(
+  value: ChatCompletionsPayload["max_tokens"],
+): ResponsesRequestPayload["max_output_tokens"] {
+  if (value === null || value === undefined) {
+    return value
+  }
+
+  return Math.max(COPILOT_RESPONSES_MIN_OUTPUT_TOKENS, value)
 }
 
 export function buildResponsesRequestPayload(
@@ -210,7 +221,7 @@ export function buildResponsesRequestPayload(
     model: payload.model,
     input: translateMessagesToResponsesInput(payload.messages),
     stream: payload.stream,
-    max_output_tokens: payload.max_tokens,
+    max_output_tokens: normalizeResponsesMaxOutputTokens(payload.max_tokens),
     temperature: payload.temperature,
     top_p: payload.top_p,
     user: sanitizeUserIdentifier(payload.user),
