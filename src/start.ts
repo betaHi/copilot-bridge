@@ -25,6 +25,7 @@ import {
   MODEL_CAPABILITIES,
   resolveModelId,
 } from "~/lib/model-capabilities"
+import { configureProxyFromEnv } from "~/lib/proxy"
 import { runtimeState } from "~/lib/state"
 import { BRIDGE_VERSION } from "~/lib/version"
 import {
@@ -296,6 +297,7 @@ export const start = defineCommand({
       : DEFAULT_PORT
 
     const config = readBridgeConfig({ host, port })
+    configureProxyFromEnv()
     runtimeState.debug = Boolean(args.debug)
     if (!args.auto) {
       disableAutoMode()

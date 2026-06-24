@@ -3,6 +3,7 @@ import consola from "consola"
 
 import { setupBridgeAuth } from "~/lib/auth"
 import { readBridgeConfig } from "~/lib/config"
+import { configureProxyFromEnv } from "~/lib/proxy"
 
 export const auth = defineCommand({
   meta: {
@@ -31,6 +32,8 @@ export const auth = defineCommand({
       host: String(args.host),
       port: Number(args.port),
     })
+
+    configureProxyFromEnv()
 
     config.copilotToken = undefined
 

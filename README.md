@@ -1,7 +1,7 @@
 <h1 align="center">copilot-bridge</h1>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/betahi-copilot-bridge"><img src="https://img.shields.io/npm/v/betahi-copilot-bridge.svg?v=0.20.15" alt="npm version"></a>
+  <a href="https://www.npmjs.com/package/betahi-copilot-bridge"><img src="https://img.shields.io/npm/v/betahi-copilot-bridge.svg?v=0.20.16" alt="npm version"></a>
   <a href="https://github.com/betahi/copilot-bridge/blob/main/LICENSE"><img src="https://img.shields.io/npm/l/betahi-copilot-bridge.svg" alt="license"></a>
 </p>
 
@@ -259,6 +259,14 @@ Diagnostics:
 | `COPILOT_BASE_URL`         | Override the upstream Copilot base URL.              |
 | `COPILOT_VSCODE_VERSION`   | Override the VS Code version sent upstream.          |
 | `MODEL_REASONING_EFFORT`   | Claude-side reasoning effort override.              |
+| `HTTP_PROXY` / `HTTPS_PROXY` | Route outbound GitHub/Copilot requests through an HTTP proxy. |
+| `NO_PROXY`                 | Hosts that should bypass `HTTP_PROXY` / `HTTPS_PROXY`. |
+
+Proxy example:
+
+```sh
+HTTPS_PROXY=http://127.0.0.1:7890 npx betahi-copilot-bridge@latest start
+```
 
 ## Supported models
 
