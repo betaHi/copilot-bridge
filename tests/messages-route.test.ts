@@ -323,6 +323,27 @@ const copilotWebSearchResponse = (
     { status: 200, headers: { "content-type": "application/json" } },
   )
 
+const responseLike = (input: { body?: unknown; status?: number }): Response => {
+  const bodyText =
+    typeof input.body === "string" ? input.body
+    : input.body === undefined ? ""
+    : JSON.stringify(input.body)
+  const value = {
+    ok: (input.status ?? 200) >= 200 && (input.status ?? 200) < 300,
+    status: input.status ?? 200,
+    clone() {
+      return this
+    },
+    async json() {
+      return input.body
+    },
+    async text() {
+      return bodyText
+    },
+  }
+  return value as unknown as Response
+}
+
 let restore: () => void = () => {}
 let isolatedHome: string | undefined
 const originalHome = process.env.HOME
@@ -3134,6 +3155,82 @@ describe("/v1/messages route", () => {
     expect(json.content[2]?.text).toBe(
       "SearXNG is a privacy-respecting metasearch engine.",
     )
+  })
+
+  test("accepts cross-realm Response-like SearXNG responses", async () => {
+    await writeFile(
+      path.join(isolatedHome!, ".claude", "settings.json"),
+      JSON.stringify({ env: { COPILOT_WEB_SEARCH_BACKEND: "searxng" } }),
+    )
+    const captured: Array<CapturedRequest> = []
+    let chatCalls = 0
+    const { app, restore: r } = buildApp(captured, (request) => {
+      if (request.url === "https://upstream.test/chat/completions") {
+        chatCalls += 1
+        return chatCalls === 1 ?
+            chatWebSearchToolCallResponse("searxng", "web_search")
+          : chatTextResponse("SearXNG is available.")
+      }
+
+      if (request.url === "http://localhost:8080") {
+        return responseLike({ body: "ok" })
+      }
+
+      return responseLike({
+        body: {
+          results: [
+            {
+              title: "SearXNG",
+              url: "https://docs.searxng.org/",
+              content: "A privacy-respecting metasearch engine.",
+            },
+          ],
+        },
+      })
+    })
+    restore = r
+
+    const res = await app.request("/v1/messages", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-opus-4.6",
+        max_tokens: 1024,
+        messages: [{ role: "user", content: "search the web for searxng" }],
+        tools: [
+          {
+            type: "web_search_20250305",
+            name: "web_search",
+          },
+        ],
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    const json = (await res.json()) as {
+      content: Array<{
+        content?: Array<{
+          encrypted_content?: string
+          page_age?: string | null
+          title?: string
+          type?: string
+          url?: string
+        }>
+        text?: string
+        type: string
+      }>
+    }
+    expect(json.content[1]?.type).toBe("web_search_tool_result")
+    expect(json.content[1]?.content).toEqual([
+      {
+        type: "web_search_result",
+        title: "SearXNG",
+        url: "https://docs.searxng.org/",
+        encrypted_content: "",
+        page_age: null,
+      },
+    ])
+    expect(json.content[2]?.text).toBe("SearXNG is available.")
   })
 
   test("returns a helpful web search error when local SearXNG is unavailable", async () => {

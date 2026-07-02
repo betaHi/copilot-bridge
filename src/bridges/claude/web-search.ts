@@ -111,8 +111,17 @@ type WebSearchBackend =
   | { type: "copilot-cli" }
   | { type: "searxng" }
 
+type FetchResponseLike = Pick<Response, "json" | "ok" | "status" | "text">
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value)
+
+const isFetchResponseLike = (value: unknown): value is FetchResponseLike =>
+  isRecord(value)
+  && typeof value.ok === "boolean"
+  && typeof value.status === "number"
+  && typeof value.json === "function"
+  && typeof value.text === "function"
 
 const WEB_SEARCH_INPUT_SCHEMA = {
   type: "object",
@@ -777,7 +786,7 @@ const checkSearxngAvailable = async (): Promise<string | undefined> => {
     signal: AbortSignal.timeout(SEARXNG_READINESS_TIMEOUT_MS),
   }).catch((error: unknown) => error)
 
-  if (response instanceof Response) {
+  if (isFetchResponseLike(response)) {
     return undefined
   }
 
@@ -812,7 +821,7 @@ const createSearxngSearchExecution = async (
     signal: AbortSignal.timeout(SEARXNG_TIMEOUT_MS),
   }).catch((error: unknown) => error)
 
-  if (!(response instanceof Response)) {
+  if (!isFetchResponseLike(response)) {
     const detail = response instanceof Error ? response.message : String(response)
     return createFailedSearchExecution(
       request,
