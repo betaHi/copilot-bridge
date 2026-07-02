@@ -1,6 +1,6 @@
 {
   "name": "betahi-copilot-bridge",
-  "version": "0.20.16",
+  "version": "0.20.17",
   "description": "Model-layer bridge for routing Codex CLI, Claude Code, and similar clients to GitHub Copilot.",
   "keywords": [
     "github-copilot",
@@ -21,8 +21,8 @@
   "author": "betaHi",
   "type": "module",
   "bin": {
-    "copilot-bridge": "./dist/main.js",
-    "betahi-copilot-bridge": "./dist/main.js"
+    "copilot-bridge": "dist/main.js",
+    "betahi-copilot-bridge": "dist/main.js"
   },
   "files": [
     "dist"
