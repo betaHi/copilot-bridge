@@ -129,6 +129,14 @@ export const MODEL_CAPABILITIES: ReadonlyArray<ModelCapability> = [
     fallback: "chat-completions",
   },
   {
+    id: "claude-sonnet-5",
+    fallback: "chat-completions",
+    reasoning: {
+      supported: ["low", "medium", "high", "xhigh", "max"],
+      default: "medium",
+    },
+  },
+  {
     id: "claude-sonnet-4.6",
     fallback: "chat-completions",
     reasoning: {

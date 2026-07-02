@@ -12,6 +12,7 @@ const CASES: Case[] = [
   { model: "claude-opus-4.7-1m", efforts: ["low", "medium", "high", "xhigh"] },
   { model: "claude-opus-4.6", efforts: ["low", "medium", "high"] },
   { model: "claude-opus-4.6-1m", efforts: ["low", "medium", "high"] },
+  { model: "claude-sonnet-5", efforts: ["low", "medium", "high", "xhigh"] },
   { model: "claude-sonnet-4.6", efforts: ["low", "medium", "high"] },
   { model: "claude-opus-4.5", efforts: [null] },
   { model: "claude-sonnet-4.5", efforts: [null] },

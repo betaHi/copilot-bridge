@@ -56,6 +56,7 @@ describe("model-capabilities: alias + capability lookup", () => {
       "claude-opus-4.8",
       "claude-opus-4.6",
       "claude-opus-4.6-1m",
+      "claude-sonnet-5",
       "gemini-3.1-pro-preview",
       "gemini-3-flash-preview",
     ]) {
@@ -167,6 +168,30 @@ describe("model-capabilities: clampReasoningEffort", () => {
       changed: false,
     })
     expect(clampReasoningEffort("claude-opus-4.8", "none")).toEqual({
+      effort: "low",
+      changed: true,
+      reason: "unsupported-effort",
+    })
+  })
+
+  test("claude-sonnet-5 supports its live upstream effort range", () => {
+    expect(clampReasoningEffort("claude-sonnet-5", undefined)).toEqual({
+      effort: "medium",
+      changed: false,
+    })
+    expect(clampReasoningEffort("claude-sonnet-5", "high")).toEqual({
+      effort: "high",
+      changed: false,
+    })
+    expect(clampReasoningEffort("claude-sonnet-5", "xhigh")).toEqual({
+      effort: "xhigh",
+      changed: false,
+    })
+    expect(clampReasoningEffort("claude-sonnet-5", "max")).toEqual({
+      effort: "max",
+      changed: false,
+    })
+    expect(clampReasoningEffort("claude-sonnet-5", "none")).toEqual({
       effort: "low",
       changed: true,
       reason: "unsupported-effort",

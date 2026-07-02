@@ -293,6 +293,7 @@ accepts upstream.
 | `claude-opus-4.7-1m`             | `low`, `medium`, `high`, `xhigh`, `max` | 1M-token context window, prefer use `claude-opus-4.7-[1m]` in config. |
 | `claude-opus-4.6`                | `low`, `medium`, `high`, `max`          |                                        |
 | `claude-opus-4.6-1m`             | `low`, `medium`, `high`, `max`          | 1M-token context window, prefer use `claude-opus-4.6-[1m]` in config              |
+| `claude-sonnet-5`                | `low`, `medium`, `high`, `xhigh`, `max` |                                        |
 | `claude-sonnet-4.6`              | `low`, `medium`, `high`, `max`          |                                        |
 | `claude-opus-4.5`                | —                                       | Reasoning not accepted upstream.       |
 | `claude-sonnet-4.5`              | —                                       | Reasoning not accepted upstream.       |
