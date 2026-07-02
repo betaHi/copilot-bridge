@@ -355,7 +355,52 @@ function translateAnthropicMessagesToOpenAI(
   const otherMessages = anthropicMessages.flatMap((message) =>
     message.role === "user" ? handleUserMessage(message) : handleAssistantMessage(message, toolNameMapper),
   )
-  return [...systemMessages, ...otherMessages]
+  return normalizeTrailingAssistantPrefill([...systemMessages, ...otherMessages])
+}
+
+const assistantPrefillInstruction = [
+  "The assistant response has already started with this prefill.",
+  "Continue directly from it without repeating it.",
+].join(" ")
+
+function normalizeTrailingAssistantPrefill(messages: Array<Message>): Array<Message> {
+  const lastMessage = messages.at(-1)
+
+  if (lastMessage?.role !== "assistant") {
+    return messages
+  }
+
+  if (lastMessage.tool_calls && lastMessage.tool_calls.length > 0) {
+    return messages
+  }
+
+  const prefill = contentToText(lastMessage.content)
+  if (!prefill.trim()) {
+    return messages.slice(0, -1)
+  }
+
+  return [
+    ...messages.slice(0, -1),
+    {
+      role: "user",
+      content: `${assistantPrefillInstruction}\n\n${prefill}`,
+    },
+  ]
+}
+
+function contentToText(content: Message["content"]): string {
+  if (typeof content === "string") {
+    return content
+  }
+
+  if (!Array.isArray(content)) {
+    return ""
+  }
+
+  return content
+    .filter((part): part is TextPart => part.type === "text")
+    .map((part) => part.text)
+    .join("\n\n")
 }
 
 function handleSystemPrompt(

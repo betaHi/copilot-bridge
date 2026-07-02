@@ -6,8 +6,26 @@ import { afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:te
 import { Hono } from "hono"
 
 import type { BridgeConfig, BridgeEnv } from "~/lib/config"
+import { MODEL_CAPABILITIES } from "~/lib/model-capabilities"
 import { runtimeState } from "~/lib/state"
 import { messageRoutes } from "~/routes/messages"
+
+const publicModelIds = (): Array<string> =>
+  MODEL_CAPABILITIES.flatMap((capability) => {
+    if (capability.id === "claude-opus-4.6") {
+      return ["claude-opus-4.6", "claude-opus-4.6-1m", "claude-opus-4.6-[1m]"]
+    }
+
+    if (capability.id === "claude-opus-4.7") {
+      return ["claude-opus-4.7", "claude-opus-4.7-1m", "claude-opus-4.7-[1m]"]
+    }
+
+    if (capability.id === "claude-opus-4.8") {
+      return ["claude-opus-4.8", "claude-opus-4.8-1m", "claude-opus-4.8-[1m]"]
+    }
+
+    return [capability.id]
+  })
 
 beforeAll(() => {
   runtimeState.models = {
@@ -108,6 +126,63 @@ interface CapturedRequest {
   body: unknown
 }
 
+type UpstreamConversationItem = {
+  role?: string
+  content?: unknown
+}
+
+const isUpstreamConversationItem = (
+  value: unknown,
+): value is UpstreamConversationItem =>
+  typeof value === "object" && value !== null && "role" in value
+
+const getLastUpstreamConversationItem = (
+  body: unknown,
+): UpstreamConversationItem | undefined => {
+  if (typeof body !== "object" || body === null) {
+    return undefined
+  }
+
+  const record = body as {
+    input?: unknown
+    messages?: Array<UpstreamConversationItem>
+  }
+
+  if (Array.isArray(record.messages)) {
+    return record.messages.at(-1)
+  }
+
+  if (Array.isArray(record.input)) {
+    return record.input.filter(isUpstreamConversationItem).at(-1)
+  }
+
+  if (typeof record.input === "string") {
+    return { role: "user", content: record.input }
+  }
+
+  return undefined
+}
+
+const upstreamContentText = (content: unknown): string => {
+  if (typeof content === "string") {
+    return content
+  }
+
+  if (!Array.isArray(content)) {
+    return ""
+  }
+
+  return content
+    .flatMap((part) => {
+      if (typeof part !== "object" || part === null) {
+        return []
+      }
+      const text = (part as { text?: unknown }).text
+      return typeof text === "string" ? [text] : []
+    })
+    .join("\n\n")
+}
+
 const buildApp = (
   captured: Array<CapturedRequest>,
   response: Response | ((request: CapturedRequest) => Response),
@@ -168,6 +243,24 @@ const chatTextResponse = (content: string, model = "claude-haiku-4.5") =>
         },
       ],
       usage: { prompt_tokens: 9, completion_tokens: 2, total_tokens: 11 },
+    }),
+    { status: 200, headers: { "content-type": "application/json" } },
+  )
+
+const responsesTextResponse = (content: string, model = "gpt-5.5") =>
+  new Response(
+    JSON.stringify({
+      id: "resp-text",
+      created_at: 1700000000,
+      model,
+      output: [
+        {
+          type: "message",
+          role: "assistant",
+          content: [{ type: "output_text", text: content }],
+        },
+      ],
+      usage: { input_tokens: 9, output_tokens: 2, total_tokens: 11 },
     }),
     { status: 200, headers: { "content-type": "application/json" } },
   )
@@ -315,6 +408,134 @@ describe("/v1/messages route", () => {
     expect((captured[0].body as { model: string }).model).toBe(
       "claude-sonnet-4.6",
     )
+  })
+
+  test("rewrites trailing assistant prefill before Opus chat completions", async () => {
+    const fillerTools = Array.from({ length: 43 }, (_, index) => ({
+      name: `tool_${index}`,
+      description: `Filler tool ${index}`,
+      input_schema: { type: "object", properties: {} },
+    }))
+
+    for (const model of ["claude-opus-4.7", "claude-opus-4.8"]) {
+      const captured: Array<CapturedRequest> = []
+      const { app, restore: r } = buildApp(captured, (request) => {
+        const body = request.body as {
+          messages: Array<{ role: string; content: string }>
+        }
+        if (body.messages.at(-1)?.role === "assistant") {
+          return new Response(
+            JSON.stringify({
+              error: {
+                message:
+                  "This model does not support assistant message prefill. The conversation must end with a user message.",
+                code: "invalid_request_body",
+              },
+            }) + "\n",
+            { status: 400, statusText: "Bad Request" },
+          )
+        }
+
+        return chatTextResponse("completed", model)
+      })
+      restore = r
+
+      const res = await app.request("/v1/messages", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          model,
+          max_tokens: 32000,
+          stream: true,
+          system: "You are concise.",
+          messages: [
+            { role: "user", content: "Return a JSON object." },
+            { role: "assistant", content: "{" },
+          ],
+          tools: fillerTools,
+        }),
+      })
+
+      expect(res.status).toBe(200)
+      const upstreamBody = captured[0].body as {
+        messages: Array<{ role: string; content: string }>
+        tools?: Array<unknown>
+      }
+      expect(upstreamBody.messages).toHaveLength(3)
+      expect(upstreamBody.messages.map((message) => message.role)).toEqual([
+        "system",
+        "user",
+        "user",
+      ])
+      expect(upstreamBody.messages.at(-1)?.content).toContain(
+        "Continue directly from it without repeating it.",
+      )
+      expect(upstreamBody.messages.at(-1)?.content).toContain("{")
+      expect(upstreamBody.tools).toHaveLength(43)
+
+      restore()
+      restore = () => {}
+    }
+  })
+
+  test("rewrites trailing assistant prefill for every public model id", async () => {
+    const fillerTools = Array.from({ length: 43 }, (_, index) => ({
+      name: `tool_${index}`,
+      description: `Filler tool ${index}`,
+      input_schema: { type: "object", properties: {} },
+    }))
+
+    for (const model of publicModelIds()) {
+      const captured: Array<CapturedRequest> = []
+      const { app, restore: restoreFetch } = buildApp(captured, (request) => {
+        const lastItem = getLastUpstreamConversationItem(request.body)
+        if (lastItem?.role === "assistant") {
+          return new Response(
+            JSON.stringify({
+              error: {
+                message:
+                  "This model does not support assistant message prefill. The conversation must end with a user message.",
+                code: "invalid_request_body",
+              },
+            }) + "\n",
+            { status: 400, statusText: "Bad Request" },
+          )
+        }
+
+        return request.url.endsWith("/responses") ?
+            responsesTextResponse("completed", model)
+          : chatTextResponse("completed", model)
+      })
+      restore = restoreFetch
+
+      const res = await app.request("/v1/messages", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          model,
+          max_tokens: 32000,
+          system: "You are concise.",
+          messages: [
+            { role: "user", content: "Return a JSON object." },
+            { role: "assistant", content: "{" },
+          ],
+          tools: fillerTools,
+        }),
+      })
+
+      expect({ model, status: res.status }).toEqual({ model, status: 200 })
+      const upstreamBody = captured[0].body as { tools?: Array<unknown> }
+      const lastItem = getLastUpstreamConversationItem(upstreamBody)
+      expect({ model, role: lastItem?.role }).toEqual({ model, role: "user" })
+      expect(upstreamContentText(lastItem?.content)).toContain(
+        "Continue directly from it without repeating it.",
+      )
+      expect(upstreamContentText(lastItem?.content)).toContain("{")
+      expect(upstreamBody.tools).toHaveLength(43)
+
+      restore()
+      restore = () => {}
+    }
   })
 
   test("shortens long MCP tool names upstream and restores them in tool_use", async () => {
