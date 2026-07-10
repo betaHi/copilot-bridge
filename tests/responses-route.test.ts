@@ -239,28 +239,32 @@ describe("/v1/responses route — passthrough vs translation contract", () => {
   })
 
   test("GPT-5 family is forwarded directly to upstream /responses (true passthrough)", async () => {
-    const captured: Array<CapturedRequest> = []
-    const upstream = new Response('{"id":"resp_1","object":"response"}', {
-      status: 200,
-      headers: { "content-type": "application/json" },
-    })
-    const { app, restore: r } = buildApp(captured, upstream)
-    restore = r
+    for (const model of ["gpt-5.6-luna", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.3-codex"]) {
+      const captured: Array<CapturedRequest> = []
+      const upstream = new Response('{"id":"resp_1","object":"response"}', {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      })
+      const { app, restore: r } = buildApp(captured, upstream)
+      restore = r
 
-    const res = await app.request("/v1/responses", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        model: "gpt-5.3-codex",
-        input: "ping",
-        stream: false,
-      }),
-    })
+      const res = await app.request("/v1/responses", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          model,
+          input: "ping",
+          stream: false,
+        }),
+      })
 
-    expect(res.status).toBe(200)
-    expect(captured).toHaveLength(1)
-    expect(captured[0].url).toBe("https://upstream.test/responses")
-    expect((captured[0].body as { model: string }).model).toBe("gpt-5.3-codex")
+      expect(res.status).toBe(200)
+      expect(captured).toHaveLength(1)
+      expect(captured[0].url).toBe("https://upstream.test/responses")
+      expect((captured[0].body as { model: string }).model).toBe(model)
+      restore()
+      restore = () => {}
+    }
   })
 
   test("injects Codex config reasoning effort when Codex omits reasoning", async () => {
@@ -298,7 +302,7 @@ model_reasoning_effort = "high"
   })
 
   test("chat-completions routes responses-only GPT models directly to /responses", async () => {
-    const models = ["gpt-5.5", "gpt-5.3-codex"]
+    const models = ["gpt-5.6-luna", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.5", "gpt-5.3-codex"]
 
     for (const model of models) {
       const captured: Array<CapturedRequest> = []

@@ -29,7 +29,15 @@ describe("model-capabilities: alias + capability lookup", () => {
   })
 
   test("GPT-5 family is true passthrough (no fallback flag)", () => {
-    for (const id of ["gpt-5.4", "gpt-5.5", "gpt-5.3-codex", "gpt-5.4-mini"]) {
+    for (const id of [
+      "gpt-5.6-luna",
+      "gpt-5.6-sol",
+      "gpt-5.6-terra",
+      "gpt-5.5",
+      "gpt-5.4",
+      "gpt-5.3-codex",
+      "gpt-5.4-mini",
+    ]) {
       const cap = getModelCapability(id)
       expect(cap).toBeDefined()
       expect(cap?.fallback).toBeUndefined()
@@ -41,7 +49,14 @@ describe("model-capabilities: alias + capability lookup", () => {
       getModelCapability("gpt-5.4")?.requiresResponsesForChatReasoningTools,
     ).toBe(true)
 
-    for (const id of ["gpt-5.5", "gpt-5.3-codex", "gpt-5-mini"]) {
+    for (const id of [
+      "gpt-5.6-luna",
+      "gpt-5.6-sol",
+      "gpt-5.6-terra",
+      "gpt-5.5",
+      "gpt-5.3-codex",
+      "gpt-5-mini",
+    ]) {
       expect(
         getModelCapability(id)?.requiresResponsesForChatReasoningTools,
       ).toBeUndefined()
@@ -86,6 +101,10 @@ describe("model-capabilities: clampReasoningEffort", () => {
   test("supported value passes through unchanged", () => {
     expect(clampReasoningEffort("gpt-5.5", "xhigh")).toEqual({
       effort: "xhigh",
+      changed: false,
+    })
+    expect(clampReasoningEffort("gpt-5.6-luna", "none")).toEqual({
+      effort: "none",
       changed: false,
     })
   })

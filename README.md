@@ -1,7 +1,7 @@
 <h1 align="center">copilot-bridge</h1>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/betahi-copilot-bridge"><img src="https://img.shields.io/npm/v/betahi-copilot-bridge.svg?v=0.20.18" alt="npm version"></a>
+  <a href="https://www.npmjs.com/package/betahi-copilot-bridge"><img src="https://img.shields.io/npm/v/betahi-copilot-bridge.svg?v=0.20.19" alt="npm version"></a>
   <a href="https://github.com/betahi/copilot-bridge/blob/main/LICENSE"><img src="https://img.shields.io/npm/l/betahi-copilot-bridge.svg" alt="license"></a>
 </p>
 
@@ -196,7 +196,7 @@ COPILOT_WEB_SEARCH_BACKEND = "gpt-5.5"
 
 | Value | Search path | Requirement |
 | ----- | ----------- | ----------- |
-| Copilot model id, for example `gpt-5.5` | Copilot HTTP `/responses` + `web_search_preview` | Recommended: `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.3-codex`. |
+| Copilot model id, for example `gpt-5.6-luna` | Copilot HTTP `/responses` + `web_search_preview` | Recommended: `gpt-5.6-luna`, `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.3-codex`. |
 | `searxng`, use `"COPILOT_WEB_SEARCH_BACKEND": "searxng"` | Local SearXNG at `http://localhost:8080` | Start SearXNG yourself. Setup guide: https://github.com/betaHi/openclaw-searxng-search. |
 | `copilot-cli` or `copilot`, use `"COPILOT_WEB_SEARCH_BACKEND": "copilot-cli"` | GitHub Copilot CLI `web_search` tool, using the current request model | Install and sign in to GitHub Copilot CLI yourself. |
 
@@ -277,6 +277,9 @@ accepts upstream.
 
 | Model           | Reasoning efforts                        |
 | --------------- | ---------------------------------------- |
+| `gpt-5.6-luna`  | `none`, `low`, `medium`, `high`, `xhigh` |
+| `gpt-5.6-sol`   | `none`, `low`, `medium`, `high`, `xhigh` |
+| `gpt-5.6-terra` | `none`, `low`, `medium`, `high`, `xhigh` |
 | `gpt-5.5`       | `none`, `low`, `medium`, `high`, `xhigh` |
 | `gpt-5.4`       | `low`, `medium`, `high`, `xhigh`         |
 | `gpt-5.4-mini`  | `none`, `low`, `medium`                  |

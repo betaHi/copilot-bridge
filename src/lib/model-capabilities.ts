@@ -45,6 +45,27 @@ export interface ModelCapability {
 
 export const MODEL_CAPABILITIES: ReadonlyArray<ModelCapability> = [
   {
+    id: "gpt-5.6-luna",
+    reasoning: {
+      supported: ["none", "low", "medium", "high", "xhigh"],
+      default: "medium",
+    },
+  },
+  {
+    id: "gpt-5.6-sol",
+    reasoning: {
+      supported: ["none", "low", "medium", "high", "xhigh"],
+      default: "medium",
+    },
+  },
+  {
+    id: "gpt-5.6-terra",
+    reasoning: {
+      supported: ["none", "low", "medium", "high", "xhigh"],
+      default: "medium",
+    },
+  },
+  {
     id: "gpt-5.5",
     reasoning: {
       supported: ["none", "low", "medium", "high", "xhigh"],

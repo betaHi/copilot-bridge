@@ -164,7 +164,7 @@ const familyOf = (model: string): MatrixCase["family"] | undefined => {
 }
 
 const shouldUseResponsesApiForModel = (model: string): boolean =>
-  /^(?:gpt-5\.5|gpt-5\.4-mini|gpt-5\.3-codex)(?:-|$)/i.test(
+  /^(?:gpt-5\.6-(?:luna|sol|terra)|gpt-5\.5|gpt-5\.4-mini|gpt-5\.3-codex)(?:-|$)/i.test(
     model,
   )
 

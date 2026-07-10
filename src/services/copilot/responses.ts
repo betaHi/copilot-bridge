@@ -196,7 +196,7 @@ interface CreateChunkOptions {
 }
 
 const RESPONSES_ONLY_MODEL_PATTERN =
-  /^(?:gpt-5\.5|gpt-5\.4-mini|gpt-5\.3-codex)(?:-|$)/i
+  /^(?:gpt-5\.6-(?:luna|sol|terra)|gpt-5\.5|gpt-5\.4-mini|gpt-5\.3-codex)(?:-|$)/i
 const COPILOT_RESPONSES_MIN_OUTPUT_TOKENS = 16
 
 export function shouldUseResponsesApiForModel(model: string): boolean {

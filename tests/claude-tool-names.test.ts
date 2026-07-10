@@ -62,6 +62,10 @@ describe("Claude tool name mapping", () => {
       allowDots: false,
       maxNameLength: 128,
     })
+    expect(getToolNameMapperOptionsForModel("gpt-5.6-luna")).toEqual({
+      allowDots: false,
+      maxNameLength: 128,
+    })
     expect(getToolNameMapperOptionsForModel("gpt-5-mini")).toEqual({
       allowDots: false,
       maxNameLength: 128,
